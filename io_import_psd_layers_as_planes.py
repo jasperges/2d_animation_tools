@@ -16,15 +16,6 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-# TODO:
-#   - add image to uv-layout (so it shows in material shading mode)
-#   - change png dir to user preference?
-#   - group planes from different psd's (parent to empty? 'normal' group?)
-#   - maybe support layer groups and group planes by this (parent to empty? 'normal' group?)
-#   - put planes of several psd's on different layers
-#   - Add warnings if files can not be saved or dir can not be created
-#   - Re-import already saved png's? -> save layer_info to disc?
-
 
 import os
 import time
@@ -77,7 +68,7 @@ def parse_psd(psd_file):
                                   "x": x,
                                   "y": y}
 
-    return layer_info
+    return (layer_info, png_dir)
 
 
 def import_images(layer_info, img_dir):
@@ -111,10 +102,11 @@ def import_images(layer_info, img_dir):
                                          rotation=(0.5 * math.pi, 0, 0))
         plane = bpy.context.object
         plane.name = layer
-        # Add UV's
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.uv.unwrap()
-        bpy.ops.object.mode_set(mode='OBJECT')
+        # Add UV's and add image to UV's
+        img_path = os.path.join(img_dir, "".join((layer, ".png")))
+        img = bpy.data.images.load(img_path)
+        plane.data.uv_textures.new()
+        plane.data.uv_textures[0].data[0].image = img
         # Scale plane according to image size
         scale_x = l["width"] / scale_fac / 2
         scale_y = l["height"] / scale_fac / 2
@@ -122,8 +114,6 @@ def import_images(layer_info, img_dir):
         # Apply rotation and scale
         bpy.ops.object.transform_apply(rotation=True, scale=True)
         # Create material
-        img_path = os.path.join(img_dir, "".join((layer, ".png")))
-        img = bpy.data.images.load(img_path)
         tex = bpy.data.textures.new(layer, 'IMAGE')
         tex.use_mipmap = False
         tex.image = img
@@ -184,8 +174,8 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         fils = self.properties.files
         for f in fils:
             psd_file = os.path.join(d, f.name)
-            layer_info = parse_psd(psd_file)
-            import_images(layer_info, d)
+            layer_info, png_dir = parse_psd(psd_file)
+            import_images(layer_info, png_dir)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
         return {'FINISHED'}
