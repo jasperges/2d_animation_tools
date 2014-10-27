@@ -40,6 +40,8 @@ def parse_psd(self, psd_file):
         string psd_file - the filepath of the psd file
     """
 
+    hidden_layers = self.hidden_layers
+
     print("parsing: {}".format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
@@ -47,13 +49,13 @@ def parse_psd(self, psd_file):
     if not os.path.isdir(png_dir):
         try:
             os.mkdir(png_dir)
-        except IOError:
+        except:
             # !!!
-            pass
+            return
     psd = PSDImage.load(psd_file)
     layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
     for i, layer in enumerate(psd.layers):
-        if not layer.visible_global or (layer.bbox.width < 2 and layer.bbox.height < 2):
+        if hidden_layers and not layer.visible_global:
             continue
         png_file = os.path.join(png_dir, "".join((layer.name, ".png")))
         layer_image = layer.as_PIL()
@@ -84,7 +86,6 @@ def import_images(self, layer_info, img_dir):
 
     offset = self.offset
     scale_fac = self.scale_fac
-    hidden_layers = self.hidden_layers
     use_mipmap = self.use_mipmap
     use_shadeless = True
     use_transparency = True
