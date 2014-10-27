@@ -29,7 +29,7 @@ from bpy.props import (BoolProperty,
 from bpy_extras.io_utils import ImportHelper
 
 
-def parse_psd(psd_file):
+def parse_psd(self, psd_file):
     """
     parse_psd(string psd_file) -> dict layer_info
 
@@ -71,7 +71,7 @@ def parse_psd(psd_file):
     return (layer_info, png_dir)
 
 
-def import_images(layer_info, img_dir):
+def import_images(self, layer_info, img_dir):
     """
     import_images(dict layer_info, string img_dir)
 
@@ -82,8 +82,13 @@ def import_images(layer_info, img_dir):
         string img_dir  - the path to the png images
     """
 
-    offset = 0.1
-    scale_fac = 100
+    offset = self.offset
+    scale_fac = self.scale_fac
+    hidden_layers = self.hidden_layers
+    use_mipmap = self.use_mipmap
+    use_shadeless = True
+    use_transparency = True
+
     image_width = layer_info["image_size"][0]
     image_height = layer_info["image_size"][1]
 
@@ -115,15 +120,17 @@ def import_images(layer_info, img_dir):
         bpy.ops.object.transform_apply(rotation=True, scale=True)
         # Create material
         tex = bpy.data.textures.new(layer, 'IMAGE')
-        tex.use_mipmap = False
+        tex.use_mipmap = use_mipmap
         tex.image = img
         mat = bpy.data.materials.new(layer)
-        mat.use_shadeless = True
-        mat.use_transparency = True
-        mat.alpha = 0.0
+        mat.use_shadeless = use_shadeless
+        mat.use_transparency = use_transparency
+        if use_transparency:
+            mat.alpha = 0.0
         mat.texture_slots.create(0)
         mat.texture_slots[0].texture = tex
-        mat.texture_slots[0].use_map_alpha = True
+        if use_transparency:
+            mat.texture_slots[0].use_map_alpha = True
         plane.data.materials.append(mat)
 
 
@@ -159,6 +166,10 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         name="Scale",
         description="Scale of the planes (how many pixels make up 1 Blender unit)",
         default=100)
+    use_mipmap = BoolProperty(
+        name="MIP Map",
+        description="Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images.",
+        default=False)
 
     def draw(self, context):
         layout = self.layout
@@ -166,6 +177,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         col.prop(self, "hidden_layers")
         col.prop(self, "scale_fac")
         col.prop(self, "offset")
+        col.prop(self, "use_mipmap")
 
     def execute(self, context):
         start_time = time.time()
@@ -174,8 +186,8 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         fils = self.properties.files
         for f in fils:
             psd_file = os.path.join(d, f.name)
-            layer_info, png_dir = parse_psd(psd_file)
-            import_images(layer_info, png_dir)
+            layer_info, png_dir = parse_psd(self, psd_file)
+            import_images(self, layer_info, png_dir)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
         return {'FINISHED'}
