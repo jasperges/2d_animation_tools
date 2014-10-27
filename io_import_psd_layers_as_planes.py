@@ -18,6 +18,12 @@
 
 # TODO:
 #   - add image to uv-layout (so it shows in material shading mode)
+#   - change png dir to user preference?
+#   - group planes from different psd's (parent to empty? 'normal' group?)
+#   - maybe support layer groups and group planes by this (parent to empty? 'normal' group?)
+#   - put planes of several psd's on different layers
+#   - Add warnings if files can not be saved or dir can not be created
+#   - Re-import already saved png's? -> save layer_info to disc?
 
 
 import os
@@ -44,13 +50,21 @@ def parse_psd(psd_file):
     """
 
     print("parsing: {}".format(psd_file))
-    psd_dir = os.path.dirname(psd_file)
+    psd_dir, psd_name = os.path.split(psd_file)
+    psd_name = os.path.splitext(psd_name)[0]
+    png_dir = os.path.join(psd_dir, psd_name)
+    if not os.path.isdir(png_dir):
+        try:
+            os.mkdir(png_dir)
+        except IOError:
+            # !!!
+            pass
     psd = PSDImage.load(psd_file)
     layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
     for i, layer in enumerate(psd.layers):
         if not layer.visible_global or (layer.bbox.width < 2 and layer.bbox.height < 2):
             continue
-        png_file = os.path.join(psd_dir, "".join((layer.name, ".png")))
+        png_file = os.path.join(png_dir, "".join((layer.name, ".png")))
         layer_image = layer.as_PIL()
         layer_image.save(png_file)
         width = layer.bbox.width
