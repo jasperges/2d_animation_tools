@@ -50,7 +50,6 @@ def parse_psd(self, psd_file):
         try:
             os.mkdir(png_dir)
         except:
-            # !!!
             return
     psd = PSDImage.load(psd_file)
     layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
@@ -59,7 +58,10 @@ def parse_psd(self, psd_file):
             continue
         png_file = os.path.join(png_dir, "".join((layer.name, ".png")))
         layer_image = layer.as_PIL()
-        layer_image.save(png_file)
+        try:
+            layer_image.save(png_file)
+        except:
+            return
         width = layer.bbox.width
         height = layer.bbox.height
         x = layer.bbox.x1
@@ -187,7 +189,13 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         fils = self.properties.files
         for f in fils:
             psd_file = os.path.join(d, f.name)
-            layer_info, png_dir = parse_psd(self, psd_file)
+            try:
+                layer_info, png_dir = parse_psd(self, psd_file)
+            except TypeError:   # None is returned, so something went wrong.
+                msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
+                self.report({'ERROR'}, msg)
+                print("*** {}".format(msg))
+                continue
             import_images(self, layer_info, png_dir)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
