@@ -183,6 +183,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         col.prop(self, "use_mipmap")
 
     def execute(self, context):
+        editmode = context.user_preferences.edit.use_enter_edit_mode
+        context.user_preferences.edit.use_enter_edit_mode = False
+        if context.active_object and context.active_object.mode == 'EDIT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
         start_time = time.time()
         print()
         d = self.properties.directory
@@ -199,4 +204,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
             import_images(self, layer_info, png_dir)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
+
+        context.user_preferences.edit.use_enter_edit_mode = editmode
+
         return {'FINISHED'}
