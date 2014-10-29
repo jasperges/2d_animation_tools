@@ -25,7 +25,8 @@ import bpy
 from bpy.props import (BoolProperty,
                        StringProperty,
                        FloatProperty,
-                       CollectionProperty)
+                       CollectionProperty,
+                       EnumProperty)
 from bpy_extras.io_utils import ImportHelper
 
 
@@ -75,7 +76,7 @@ def parse_psd(self, psd_file):
     return (layer_info, png_dir)
 
 
-def import_images(self, layer_info, img_dir):
+def import_images(self, layer_info, img_dir, psd_name):
     """
     import_images(dict layer_info, string img_dir)
 
@@ -86,6 +87,7 @@ def import_images(self, layer_info, img_dir):
         string img_dir  - the path to the png images
     """
 
+    group_type = self.group_type
     offset = self.offset
     scale_fac = self.scale_fac
     use_mipmap = self.use_mipmap
@@ -94,6 +96,14 @@ def import_images(self, layer_info, img_dir):
 
     image_width = layer_info["image_size"][0]
     image_height = layer_info["image_size"][1]
+
+    if self.group_layers:
+        group_name = os.path.splitext(psd_name)[0]
+    if 'GROUP' in group_type:
+        group = bpy.data.groups.new(group_name)
+    if 'EMPTY' in group_type:
+        empty = bpy.data.objects.new(group_name, None)
+        bpy.context.scene.objects.link(empty)
 
     for k in layer_info:
         if k == "image_size":
@@ -136,6 +146,13 @@ def import_images(self, layer_info, img_dir):
             mat.texture_slots[0].use_map_alpha = True
         plane.data.materials.append(mat)
 
+        # Group the layers
+        if self.group_layers:
+            if 'GROUP' in group_type:
+                group.objects.link(plane)
+            if 'EMPTY' in group_type:
+                plane.parent = empty
+
 
 # Actual import operator.
 class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
@@ -173,6 +190,21 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         name="MIP Map",
         description="Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images.",
         default=False)
+    group_layers = BoolProperty(
+        name="Group planes",
+        description="Group all the layers (planes) per PSD-file",
+        default=True)
+    group_type = EnumProperty(
+        name="Group planes",
+        items=(("GROUP",
+                "Group",
+                "Put the layers (planes) in a group"),
+               ("EMPTY",
+                "Empty",
+                "Parent the layers (planes) to an empty")),
+        options={'ENUM_FLAG'},
+        description="How to group the layers (planes)",
+        default={'GROUP'})
 
     def draw(self, context):
         layout = self.layout
@@ -181,6 +213,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         col.prop(self, "scale_fac")
         col.prop(self, "offset")
         col.prop(self, "use_mipmap")
+        box = col.box()
+        box.prop(self, "group_layers")
+        row = box.row(align=True)
+        if self.group_layers:
+            row.prop(self, "group_type")
 
     def execute(self, context):
         editmode = context.user_preferences.edit.use_enter_edit_mode
@@ -201,7 +238,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 self.report({'ERROR'}, msg)
                 print("*** {}".format(msg))
                 continue
-            import_images(self, layer_info, png_dir)
+            import_images(self, layer_info, png_dir, f.name)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
 
