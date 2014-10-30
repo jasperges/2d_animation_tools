@@ -31,13 +31,20 @@ bl_info = {
     "category": "Import-Export"}
 
 
+if "bpy" in locals():
+    import imp
+    if "io_import_psd_layers_as_planes" in locals():
+        imp.reload(io_import_psd_layers_as_planes)
+
+
 import bpy
-from . import io_import_psd_layers_as_planes as import_psd
+from . import io_import_psd_layers_as_planes
 
 
 def menu_func_import(self, context):
     self.layout.operator(
-        import_psd.ImportPsdAsPlanes.bl_idname, text="Import PSD as planes")
+        io_import_psd_layers_as_planes.ImportPsdAsPlanes.bl_idname,
+        text="Import PSD as planes")
 
 
 def register():
