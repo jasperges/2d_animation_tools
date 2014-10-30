@@ -44,7 +44,7 @@ from . import io_import_psd_layers_as_planes
 def menu_func_import(self, context):
     self.layout.operator(
         io_import_psd_layers_as_planes.ImportPsdAsPlanes.bl_idname,
-        text="Import PSD as planes")
+        text="Import PSD as planes", icon='IMAGE_DATA')
 
 
 def register():
