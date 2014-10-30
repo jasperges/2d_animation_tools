@@ -17,6 +17,8 @@
 # ##### END GPL LICENSE BLOCK #####
 
 
+# icons: "IMAGE_DATA", "MATERIAL_DATA", "ARROW_LEFTRIGHT", "FILTER"
+
 import os
 import time
 import math
@@ -208,16 +210,29 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
 
     def draw(self, context):
         layout = self.layout
-        col = layout.column()
-        col.prop(self, "hidden_layers")
-        col.prop(self, "scale_fac")
+        
+        # Import options
+        box = layout.box()
+        box.label("Import options", icon="FILTER")
+        col = box.column()
+        col.prop(self, "hidden_layers", icon="GHOST_ENABLED")
         col.prop(self, "offset")
-        col.prop(self, "use_mipmap")
-        box = col.box()
-        box.prop(self, "group_layers")
-        row = box.row(align=True)
+        col.prop(self, "scale_fac")
+        col.separator()
+        col.prop(self, "group_layers", text="Grouping", icon="GROUP")
         if self.group_layers:
+            row = col.row(align=True)
             row.prop(self, "group_type")
+
+        # Material options (not much for now)
+        box = layout.box()
+        box.label("Material options", icon="MATERIAL_DATA")
+        col = box.column()
+        if self.use_mipmap:
+            mipmap_icon = "ANTIALIASED"
+        else:
+            mipmap_icon = "ALIASED"
+        col.prop(self, "use_mipmap", icon=mipmap_icon, toggle=True)
 
     def execute(self, context):
         editmode = context.user_preferences.edit.use_enter_edit_mode
