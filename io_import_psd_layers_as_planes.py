@@ -78,17 +78,20 @@ def parse_psd(self, psd_file):
     return (layer_info, png_dir)
 
 
-def import_images(self, layer_info, img_dir, psd_name):
+def import_images(self, layer_info, img_dir, psd_name, layers):
     """
-    import_images(dict layer_info, string img_dir)
+    import_images(class self, dict layer_info, string img_dir)
 
         Imports all png images that are in layer_info from img_dir
         into Blender as planes and places these planes correctly.
 
-        dict layer_info - info about the layer like position and index
-        string img_dir  - the path to the png images
+        class self        - the import operator class
+        dict layer_info   - info about the layer like position and index
+        string img_dir    - the path to the png images
+        listOfBool layers - the layer to put the objects on
     """
 
+    group_layers = self.group_layers
     group_type = self.group_type
     offset = self.offset
     scale_fac = self.scale_fac
@@ -99,13 +102,18 @@ def import_images(self, layer_info, img_dir, psd_name):
     image_width = layer_info["image_size"][0]
     image_height = layer_info["image_size"][1]
 
-    if self.group_layers:
+    if group_layers:
         group_name = os.path.splitext(psd_name)[0]
-    if 'GROUP' in group_type:
-        group = bpy.data.groups.new(group_name)
-    if 'EMPTY' in group_type:
-        empty = bpy.data.objects.new(group_name, None)
-        bpy.context.scene.objects.link(empty)
+        if 'GROUP' in group_type:
+            group = bpy.data.groups.new(group_name)
+        if 'EMPTY' in group_type:
+            empty = bpy.data.objects.new(group_name, None)
+            bpy.context.scene.objects.link(empty)
+            empty.layers = layers
+            try:
+                group.objects.link(empty)
+            except NameError:
+                pass
 
     for k in layer_info:
         if k == "image_size":
@@ -121,6 +129,7 @@ def import_images(self, layer_info, img_dir, psd_name):
         bpy.ops.mesh.primitive_plane_add(location=(loc_x, loc_y, loc_z),
                                          rotation=(0.5 * math.pi, 0, 0))
         plane = bpy.context.object
+        plane.layers = layers
         plane.name = layer
         # Add UV's and add image to UV's
         img_path = os.path.join(img_dir, "".join((layer, ".png")))
@@ -149,11 +158,22 @@ def import_images(self, layer_info, img_dir, psd_name):
         plane.data.materials.append(mat)
 
         # Group the layers
-        if self.group_layers:
+        if group_layers:
             if 'GROUP' in group_type:
                 group.objects.link(plane)
             if 'EMPTY' in group_type:
                 plane.parent = empty
+
+
+def get_current_layer():
+    """
+    !!!
+    Return the first layer that is active.
+    """
+
+    for i, l in enumerate(bpy.context.scene.layers):
+        if l:
+            return i
 
 
 # Actual import operator.
@@ -207,10 +227,14 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         options={'ENUM_FLAG'},
         description="How to group the layers (planes)",
         default={'GROUP'})
+    use_layers = BoolProperty(
+        name="Layers",
+        description="Whem importing more PSD-files, put the planes on separate layers",
+        default=True)
 
     def draw(self, context):
         layout = self.layout
-        
+
         # Import options
         box = layout.box()
         box.label("Import options", icon="FILTER")
@@ -223,6 +247,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         if self.group_layers:
             row = col.row(align=True)
             row.prop(self, "group_type")
+        col.prop(self, "use_layers", icon="RENDERLAYERS")
 
         # Material options (not much for now)
         box = layout.box()
@@ -244,7 +269,13 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         print()
         d = self.properties.directory
         fils = self.properties.files
-        for f in fils:
+        layer_list = 20 * [False]
+        cur_layer = get_current_layer()
+
+        for i, f in enumerate(fils):
+            layers = layer_list[:]
+            if self.use_layers:
+                layers[cur_layer + i] = True
             psd_file = os.path.join(d, f.name)
             try:
                 layer_info, png_dir = parse_psd(self, psd_file)
@@ -253,7 +284,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 self.report({'ERROR'}, msg)
                 print("*** {}".format(msg))
                 continue
-            import_images(self, layer_info, png_dir, f.name)
+            import_images(self, layer_info, png_dir, f.name, layers)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
 
