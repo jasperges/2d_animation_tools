@@ -226,7 +226,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 "Parent the layers (planes) to an empty")),
         options={'ENUM_FLAG'},
         description="How to group the layers (planes)",
-        default={'GROUP'})
+        default={'GROUP', 'EMPTY'})
     use_layers = BoolProperty(
         name="Layers",
         description="Whem importing more PSD-files, put the planes on separate layers",
