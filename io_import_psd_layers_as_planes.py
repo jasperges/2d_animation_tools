@@ -57,7 +57,7 @@ def parse_psd(self, psd_file):
     psd = PSDImage.load(psd_file)
     layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
     for i, layer in enumerate(psd.layers):
-        if hidden_layers and not layer.visible_global:
+        if not hidden_layers and not layer.visible_global:
             continue
         png_file = os.path.join(png_dir, "".join((layer.name, ".png")))
         layer_image = layer.as_PIL()
@@ -91,8 +91,9 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         listOfBool layers - the layer to put the objects on
     """
 
+    group_empty = self.group_empty
+    group_group = self.group_group
     group_layers = self.group_layers
-    group_type = self.group_type
     offset = self.offset
     scale_fac = self.scale_fac
     use_mipmap = self.use_mipmap
@@ -102,18 +103,17 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
     image_width = layer_info["image_size"][0]
     image_height = layer_info["image_size"][1]
 
-    if group_layers:
-        group_name = os.path.splitext(psd_name)[0]
-        if 'GROUP' in group_type:
-            group = bpy.data.groups.new(group_name)
-        if 'EMPTY' in group_type:
-            empty = bpy.data.objects.new(group_name, None)
-            bpy.context.scene.objects.link(empty)
-            empty.layers = layers
-            try:
-                group.objects.link(empty)
-            except NameError:
-                pass
+    group_name = os.path.splitext(psd_name)[0]
+    if group_group:
+        group = bpy.data.groups.new(group_name)
+    if group_empty:
+        empty = bpy.data.objects.new(group_name, None)
+        bpy.context.scene.objects.link(empty)
+        empty.layers = layers
+        try:
+            group.objects.link(empty)
+        except NameError:
+            pass
 
     for k in layer_info:
         if k == "image_size":
@@ -158,11 +158,10 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         plane.data.materials.append(mat)
 
         # Group the layers
-        if group_layers:
-            if 'GROUP' in group_type:
-                group.objects.link(plane)
-            if 'EMPTY' in group_type:
-                plane.parent = empty
+        if group_group:
+            group.objects.link(plane)
+        if group_empty:
+            plane.parent = empty
 
 
 def get_current_layer():
@@ -212,24 +211,17 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         name="MIP Map",
         description="Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images.",
         default=False)
-    group_layers = BoolProperty(
-        name="Group planes",
-        description="Group all the layers (planes) per PSD-file",
+    group_group = BoolProperty(
+        name="Group",
+        description="Put the layers (planes) in a group",
         default=True)
-    group_type = EnumProperty(
-        name="Group planes",
-        items=(("GROUP",
-                "Group",
-                "Put the layers (planes) in a group"),
-               ("EMPTY",
-                "Empty",
-                "Parent the layers (planes) to an empty")),
-        options={'ENUM_FLAG'},
-        description="How to group the layers (planes)",
-        default={'GROUP', 'EMPTY'})
-    use_layers = BoolProperty(
+    group_empty = BoolProperty(
+        name="Empty",
+        description="Parent the layers (planes) to an empty",
+        default=True)
+    group_layers = BoolProperty(
         name="Layers",
-        description="Whem importing more PSD-files, put the planes on separate layers",
+        description="Put the layers (planes) on separate layers per PSD",
         default=True)
 
     def draw(self, context):
@@ -242,13 +234,13 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         col.prop(self, "hidden_layers", icon="GHOST_ENABLED")
         col.prop(self, "offset")
         col.prop(self, "scale_fac")
-        col.separator()
-        col.prop(self, "group_layers", text="Grouping", icon="GROUP")
-        if self.group_layers:
-            row = col.row(align=True)
-            row.prop(self, "group_type")
-        col.prop(self, "use_layers", icon="RENDERLAYERS")
-
+        # Grouping options
+        box = layout.box()
+        box.label("Grouping", icon="GROUP")
+        row = box.row(align=True)
+        row.prop(self, "group_group", toggle=True)
+        row.prop(self, "group_empty", toggle=True)
+        row.prop(self, "group_layers", toggle=True)
         # Material options (not much for now)
         box = layout.box()
         box.label("Material options", icon="MATERIAL_DATA")
@@ -274,8 +266,9 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
 
         for i, f in enumerate(fils):
             layers = layer_list[:]
-            if self.use_layers:
-                layers[cur_layer + i] = True
+            if self.group_layers:
+                layernum = (cur_layer + i) % 20
+                layers[layernum] = True
             psd_file = os.path.join(d, f.name)
             try:
                 layer_info, png_dir = parse_psd(self, psd_file)
