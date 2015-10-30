@@ -28,8 +28,7 @@ import bpy
 from bpy.props import (BoolProperty,
                        StringProperty,
                        FloatProperty,
-                       CollectionProperty,
-                       EnumProperty)
+                       CollectionProperty)
 from bpy_extras.io_utils import ImportHelper
 
 
@@ -46,6 +45,28 @@ def parse_psd(self, psd_file):
 
     hidden_layers = self.hidden_layers
 
+    def parse_layer(layer, i, group=None):
+        if group:
+            layer_name = "_".join((group, layer.name))
+        else:
+            layer_name = layer.name
+        png_file = os.path.join(png_dir, "".join((layer_name, ".png")))
+        layer_image = layer.as_PIL()
+        try:
+            layer_image.save(png_file)
+        except:
+            return
+        width = layer.bbox.width
+        height = layer.bbox.height
+        x = layer.bbox.x1
+        y = layer.bbox.y1
+        layer_info[layer_name] = {"group": group,
+                                  "index": i - 1,
+                                  "width": width,
+                                  "height": height,
+                                  "x": x,
+                                  "y": y}
+
     print("parsing: {}".format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
@@ -57,24 +78,21 @@ def parse_psd(self, psd_file):
             return
     psd = psd_tools.PSDImage.load(psd_file)
     layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
-    for i, layer in enumerate(psd.layers):
-        if not hidden_layers and not layer.visible_global:
-            continue
-        png_file = os.path.join(png_dir, "".join((layer.name, ".png")))
-        layer_image = layer.as_PIL()
-        try:
-            layer_image.save(png_file)
-        except:
-            return
-        width = layer.bbox.width
-        height = layer.bbox.height
-        x = layer.bbox.x1
-        y = layer.bbox.y1
-        layer_info[layer.name] = {"index": i,
-                                  "width": width,
-                                  "height": height,
-                                  "x": x,
-                                  "y": y}
+
+    # Check if there are any layer groups, if not just parse all layers.
+    offset_index = 0
+    for layer in psd.layers:
+        if isinstance(layer, psd_tools.Group):
+            for group_layer in layer.layers:
+                if not hidden_layers and not group_layer.visible_global:
+                    continue
+                offset_index += 1
+                parse_layer(group_layer, offset_index, group=layer.name)
+        else:
+            if not hidden_layers and not layer.visible_global:
+                continue
+            offset_index += 1
+            parse_layer(layer, offset_index)
 
     return (layer_info, png_dir)
 
@@ -91,10 +109,13 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         string img_dir    - the path to the png images
         listOfBool layers - the layer to put the objects on
     """
-
+    print()
+    for k in layer_info:
+        if not k == 'image_size':
+            print(k, layer_info[k]['index'])
     group_empty = self.group_empty
     group_group = self.group_group
-    group_layers = self.group_layers
+    # group_layers = self.group_layers
     offset = self.offset
     scale_fac = self.scale_fac
     use_mipmap = self.use_mipmap
@@ -161,13 +182,30 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         # Group the layers
         if group_group:
             group.objects.link(plane)
+            if l["group"]:
+                layer_group = bpy.data.groups.new(l["group"])
+                layer_group.objects.link(plane)
         if group_empty:
-            plane.parent = empty
+            if l["group"]:
+                if (l["group"] in bpy.data.objects and
+                        bpy.data.objects[l["group"]].type == 'EMPTY'):
+                    group_empty = bpy.data.objects[l["group"]]
+                else:
+                    group_empty = bpy.data.objects.new(l["group"], None)
+                    bpy.context.scene.objects.link(group_empty)
+                    group_empty.layers = layers
+                try:
+                    group.objects.link(group_empty)
+                except (NameError, RuntimeError):
+                    pass
+                plane.parent = group_empty
+                group_empty.parent = empty
+            else:
+                plane.parent = empty
 
 
 def get_current_layer():
     """
-    !!!
     Return the first layer that is active.
     """
 
