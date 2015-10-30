@@ -22,7 +22,8 @@
 import os
 import time
 import math
-from psd_tools import PSDImage
+import psd_tools
+# from psd_tools import PSDImage
 import bpy
 from bpy.props import (BoolProperty,
                        StringProperty,
@@ -54,7 +55,7 @@ def parse_psd(self, psd_file):
             os.mkdir(png_dir)
         except:
             return
-    psd = PSDImage.load(psd_file)
+    psd = psd_tools.PSDImage.load(psd_file)
     layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
     for i, layer in enumerate(psd.layers):
         if not hidden_layers and not layer.visible_global:
