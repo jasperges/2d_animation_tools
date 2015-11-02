@@ -248,7 +248,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         default=100)
     use_mipmap = BoolProperty(
         name="MIP Map",
-        description="Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images.",
+        description="Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images",
         default=False)
     group_group = BoolProperty(
         name="Group",
