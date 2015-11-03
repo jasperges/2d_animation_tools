@@ -22,8 +22,8 @@
 import os
 import time
 import math
+from collections import OrderedDict
 import psd_tools
-# from psd_tools import PSDImage
 import bpy
 from bpy.props import (BoolProperty,
                        StringProperty,
@@ -45,54 +45,48 @@ def parse_psd(self, psd_file):
 
     hidden_layers = self.hidden_layers
 
-    def parse_layer(layer, i, group=None):
-        if group:
-            layer_name = "_".join((group, layer.name))
-        else:
-            layer_name = layer.name
-        png_file = os.path.join(png_dir, "".join((layer_name, ".png")))
-        layer_image = layer.as_PIL()
-        try:
+    def parse_layer(layer, prefix=None):
+        if isinstance(layer, psd_tools.Layer):
+            if prefix:
+                layer_name = "-".join((prefix, bpy.path.clean_name(layer.name)))
+            else:
+                layer_name = bpy.path.clean_name(layer.name)
+            png_file = os.path.join(png_dir, "".join((layer_name, ".png")))
+            layer_image = layer.as_PIL()
             layer_image.save(png_file)
-        except:
-            return
-        width = layer.bbox.width
-        height = layer.bbox.height
-        x = layer.bbox.x1
-        y = layer.bbox.y1
-        layer_info[layer_name] = {"group": group,
-                                  "index": i - 1,
-                                  "width": width,
-                                  "height": height,
-                                  "x": x,
-                                  "y": y}
+            width = layer.bbox.width
+            height = layer.bbox.height
+            x = layer.bbox.x1
+            y = layer.bbox.y1
+            layer_info[layer_name] = {"prefix": prefix,
+                                      "width": width,
+                                      "height": height,
+                                      "x": x,
+                                      "y": y}
+        else:
+            if prefix:
+                prefix = "-".join((prefix, bpy.path.clean_name(layer.name)))
+            else:
+                prefix = bpy.path.clean_name(layer.name)
+            for layer in layer.layers:
+                parse_layer(layer, prefix=prefix)
+
+    def parse_layers(layers, prefix=None):
+        for i, layer in enumerate(layers):
+            if not hidden_layers and not layer.visible_global:
+                continue
+            parse_layer(layer, prefix=prefix)
 
     print("parsing: {}".format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
     png_dir = os.path.join(psd_dir, psd_name)
     if not os.path.isdir(png_dir):
-        try:
-            os.mkdir(png_dir)
-        except:
-            return
+        os.mkdir(png_dir)
     psd = psd_tools.PSDImage.load(psd_file)
-    layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
-
-    # Check if there are any layer groups, if not just parse all layers.
-    offset_index = 0
-    for layer in psd.layers:
-        if isinstance(layer, psd_tools.Group):
-            for group_layer in layer.layers:
-                if not hidden_layers and not group_layer.visible_global:
-                    continue
-                offset_index += 1
-                parse_layer(group_layer, offset_index, group=layer.name)
-        else:
-            if not hidden_layers and not layer.visible_global:
-                continue
-            offset_index += 1
-            parse_layer(layer, offset_index)
+    layer_info = OrderedDict()
+    layer_info["image_size"] = (psd.bbox.width, psd.bbox.height)
+    parse_layers(psd.layers)
 
     return (layer_info, png_dir)
 
@@ -110,9 +104,6 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         listOfBool layers - the layer to put the objects on
     """
     print()
-    for k in layer_info:
-        if not k == 'image_size':
-            print(k, layer_info[k]['index'])
     group_empty = self.group_empty
     group_group = self.group_group
     # group_layers = self.group_layers
@@ -137,7 +128,7 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         except NameError:
             pass
 
-    for k in layer_info:
+    for i, k in enumerate(layer_info.keys()):
         if k == "image_size":
             continue
         else:
@@ -146,7 +137,7 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         l = layer_info[layer]
         # Create plane
         loc_x = (-image_width / 2 + l["width"] / 2 + l["x"]) / scale_fac
-        loc_y = offset * l["index"]
+        loc_y = offset * (i - 1)
         loc_z = (image_height - l["height"] / 2 - l["y"]) / scale_fac
         bpy.ops.mesh.primitive_plane_add(location=(loc_x, loc_y, loc_z),
                                          rotation=(0.5 * math.pi, 0, 0))
@@ -182,16 +173,16 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         # Group the layers
         if group_group:
             group.objects.link(plane)
-            if l["group"]:
-                layer_group = bpy.data.groups.new(l["group"])
+            if l["prefix"]:
+                layer_group = bpy.data.groups.new(l["prefix"])
                 layer_group.objects.link(plane)
         if group_empty:
-            if l["group"]:
-                if (l["group"] in bpy.data.objects and
-                        bpy.data.objects[l["group"]].type == 'EMPTY'):
-                    group_empty = bpy.data.objects[l["group"]]
+            if l["prefix"]:
+                if (l["prefix"] in bpy.data.objects and
+                        bpy.data.objects[l["prefix"]].type == 'EMPTY'):
+                    group_empty = bpy.data.objects[l["prefix"]]
                 else:
-                    group_empty = bpy.data.objects.new(l["group"], None)
+                    group_empty = bpy.data.objects.new(l["prefix"], None)
                     bpy.context.scene.objects.link(group_empty)
                     group_empty.layers = layers
                 try:
@@ -309,6 +300,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 layernum = (cur_layer + i) % 20
                 layers[layernum] = True
             psd_file = os.path.join(d, f.name)
+            layer_info, png_dir = parse_psd(self, psd_file)
             try:
                 layer_info, png_dir = parse_psd(self, psd_file)
             except TypeError:   # None is returned, so something went wrong.
@@ -316,7 +308,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 self.report({'ERROR'}, msg)
                 print("*** {}".format(msg))
                 continue
-            import_images(self, layer_info, png_dir, f.name, layers)
+            # import_images(self, layer_info, png_dir, f.name, layers)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
 
