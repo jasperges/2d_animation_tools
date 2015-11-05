@@ -23,6 +23,8 @@ import os
 import time
 import math
 from collections import OrderedDict
+import random
+import string
 import psd_tools
 import bpy
 from bpy.props import (BoolProperty,
@@ -76,6 +78,12 @@ def parse_psd(self, psd_file):
     #         if not hidden_layers and not layer.visible_global:
     #             continue
     #         parse_layer(layer, prefix=prefix)
+
+    def generate_random_id(length=8):
+        chars = ''.join((string.digits,
+                         string.ascii_lowercase,
+                         string.ascii_uppercase))
+        return ''.join(random.choice(chars) for _ in range(length))
 
     def parse_layer(layer, layer_list):
         for layer in layer.layers:
