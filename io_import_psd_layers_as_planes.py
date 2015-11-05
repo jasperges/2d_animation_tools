@@ -48,7 +48,7 @@ def parse_psd(self, psd_file):
     print("parsing: {}".format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
-    png_dir = os.path.join(psd_dir, psd_name)
+    png_dir = os.path.join(psd_dir, '_'.join((psd_name, "pngs")))
     if not os.path.isdir(png_dir):
         try:
             os.mkdir(png_dir)
