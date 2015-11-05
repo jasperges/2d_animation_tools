@@ -277,15 +277,15 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         default=False)
     group_group = BoolProperty(
         name="Group",
-        description="Put the layers (planes) in a group",
+        description="Put the images in groups",
         default=True)
     group_empty = BoolProperty(
         name="Empty",
-        description="Parent the layers (planes) to an empty",
+        description="Parent the images to an empty",
         default=True)
     group_layers = BoolProperty(
         name="Layers",
-        description="Put the layers (planes) on separate layers per PSD",
+        description="Put the images on separate layers per PSD",
         default=True)
 
     def draw(self, context):
