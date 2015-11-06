@@ -54,6 +54,8 @@ def parse_psd(self, psd_file):
         else:
             parent = 'root'
         for sub_layer in layer.layers:
+            if not hidden_layers and not sub_layer.visible_global:
+                continue
             sub_layer_name = bpy.path.clean_name(sub_layer.name)
             name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer.layer_id)
             if isinstance(sub_layer, psd_tools.Layer):
@@ -78,7 +80,7 @@ def parse_psd(self, psd_file):
             parse_layer(sub_layer, parent=name, layer_list=layer_list)
         return layer_list
 
-    print('parsing: {}'.format(psd_file))
+    print('\nparsing: {}'.format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
     png_dir = os.path.join(psd_dir, '_'.join((psd_name, 'pngs')))
@@ -127,7 +129,6 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
             except RuntimeError:
                 pass
 
-    print()
     group_empty = self.group_empty
     group_group = self.group_group
     offset = self.offset
@@ -153,7 +154,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
 
     i = 0
     for layer in layer_info:
-        print('  - processing: {layer}'.format(layer=layer[0]))
+        msg = '  - processing: {layer}'.format(layer=layer[0])
+        spaces = (80 - len(msg)) * ' '
+        msg = ''.join((msg, spaces))
+        print(msg, end='\r')
         l = layer[1]
         if l['layer_type'] == 'group' and group_empty:
             empty = bpy.data.objects.new(layer[0], None)
@@ -317,6 +321,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
             # layer_info, image_size, png_dir = parse_psd(self, psd_file)
             create_objects(self, layer_info, image_size,
                            png_dir, f.name, layers)
+            print(''.join(('  Done', 74 * ' ')))
         print('\nFiles imported in {s:.2f} seconds'.format(
             s=time.time() - start_time))
 
