@@ -22,7 +22,6 @@
 import os
 import time
 import math
-from collections import OrderedDict
 import random
 import string
 import psd_tools
@@ -35,7 +34,7 @@ from bpy_extras.io_utils import ImportHelper
 
 
 def parse_psd(self, psd_file):
-    """
+    '''
     parse_psd(string psd_file) -> dict layer_info
 
         Reads psd_file and exports all layers to png's.
@@ -43,7 +42,7 @@ def parse_psd(self, psd_file):
         the size of the image.
 
         string psd_file - the filepath of the psd file
-    """
+    '''
 
     hidden_layers = self.hidden_layers
 
@@ -101,7 +100,7 @@ def parse_psd(self, psd_file):
             name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer.layer_id)
             if isinstance(sub_layer, psd_tools.Layer):
                 # This is a normal layer we sould export it as a png
-                png_file = os.path.join(png_dir, ''.join((name, ".png")))
+                png_file = os.path.join(png_dir, ''.join((name, '.png')))
                 layer_image = sub_layer.as_PIL()
                 layer_image.save(png_file)
                 width = layer.bbox.width
@@ -146,10 +145,10 @@ def parse_psd(self, psd_file):
         #     # Put empty on correct layer (if option checked)
         #     parse_layer(layer, sub_list)
 
-    print("parsing: {}".format(psd_file))
+    print('parsing: {}'.format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
-    png_dir = os.path.join(psd_dir, '_'.join((psd_name, "pngs")))
+    png_dir = os.path.join(psd_dir, '_'.join((psd_name, 'pngs')))
     if not os.path.isdir(png_dir):
         os.mkdir(png_dir)
     psd = psd_tools.PSDImage.load(psd_file)
@@ -166,7 +165,7 @@ def parse_psd(self, psd_file):
 
 
 def import_images(self, layer_info, img_dir, psd_name, layers):
-    """
+    '''
     import_images(class self, dict layer_info, string img_dir)
 
         Imports all png images that are in layer_info from img_dir
@@ -176,7 +175,7 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         dict layer_info   - info about the layer like position and index
         string img_dir    - the path to the png images
         listOfBool layers - the layer to put the objects on
-    """
+    '''
     print()
     group_empty = self.group_empty
     group_group = self.group_group
@@ -187,8 +186,8 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
     use_shadeless = True
     use_transparency = True
 
-    image_width = layer_info["image_size"][0]
-    image_height = layer_info["image_size"][1]
+    image_width = layer_info['image_size'][0]
+    image_height = layer_info['image_size'][1]
 
     group_name = os.path.splitext(psd_name)[0]
     if group_group:
@@ -203,29 +202,29 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
             pass
 
     for i, k in enumerate(layer_info.keys()):
-        if k == "image_size":
+        if k == 'image_size':
             continue
         else:
             layer = k
-        print("  - processing: {}".format(layer))
+        print('  - processing: {}'.format(layer))
         l = layer_info[layer]
         # Create plane
-        loc_x = (-image_width / 2 + l["width"] / 2 + l["x"]) / scale_fac
+        loc_x = (-image_width / 2 + l['width'] / 2 + l['x']) / scale_fac
         loc_y = offset * (i - 1)
-        loc_z = (image_height - l["height"] / 2 - l["y"]) / scale_fac
+        loc_z = (image_height - l['height'] / 2 - l['y']) / scale_fac
         bpy.ops.mesh.primitive_plane_add(location=(loc_x, loc_y, loc_z),
                                          rotation=(0.5 * math.pi, 0, 0))
         plane = bpy.context.object
         plane.layers = layers
         plane.name = layer
         # Add UV's and add image to UV's
-        img_path = os.path.join(img_dir, "".join((layer, ".png")))
+        img_path = os.path.join(img_dir, ''.join((layer, '.png')))
         img = bpy.data.images.load(img_path)
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
         # Scale plane according to image size
-        scale_x = l["width"] / scale_fac / 2
-        scale_y = l["height"] / scale_fac / 2
+        scale_x = l['width'] / scale_fac / 2
+        scale_y = l['height'] / scale_fac / 2
         plane.scale = (scale_x, scale_y, 1)
         # Apply rotation and scale
         bpy.ops.object.transform_apply(rotation=True, scale=True)
@@ -247,19 +246,19 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
         # Group the layers/images
         if group_group:
             group.objects.link(plane)
-            if l["prefix"]:
-                if l["prefix"] in bpy.data.groups:
-                    layer_group = bpy.data.groups[l["prefix"]]
+            if l['prefix']:
+                if l['prefix'] in bpy.data.groups:
+                    layer_group = bpy.data.groups[l['prefix']]
                 else:
-                    layer_group = bpy.data.groups.new(l["prefix"])
+                    layer_group = bpy.data.groups.new(l['prefix'])
                 layer_group.objects.link(plane)
         if group_empty:
-            if l["prefix"]:
-                if (l["prefix"] in bpy.data.objects and
-                        bpy.data.objects[l["prefix"]].type == 'EMPTY'):
+            if l['prefix']:
+                if (l['prefix'] in bpy.data.objects and
+                        bpy.data.objects[l['prefix']].type == 'EMPTY'):
                     group_empty = bpy.data.objects[l["prefix"]]
                 else:
-                    group_empty = bpy.data.objects.new(l["prefix"], None)
+                    group_empty = bpy.data.objects.new(l['prefix'], None)
                     bpy.context.scene.objects.link(group_empty)
                     group_empty.layers = layers
                 try:
@@ -273,9 +272,9 @@ def import_images(self, layer_info, img_dir, psd_name, layers):
 
 
 def get_current_layer():
-    """
+    '''
     Return the first layer that is active.
-    """
+    '''
 
     for i, l in enumerate(bpy.context.scene.layers):
         if l:
@@ -286,8 +285,8 @@ def get_current_layer():
 class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
 
     '''Import PSD as planes'''
-    bl_idname = "import_scene.psd"
-    bl_label = "Import PSD as planes"
+    bl_idname = 'import_scene.psd'
+    bl_label = 'Import PSD as planes'
     bl_options = {'PRESET', 'UNDO'}
 
     # List of operator properties, the attributes will be assigned
@@ -300,35 +299,35 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'})
 
-    filename_ext = ".psd"
-    filter_glob = StringProperty(default="*.psd", options={'HIDDEN'})
+    filename_ext = '.psd'
+    filter_glob = StringProperty(default='*.psd', options={'HIDDEN'})
     offset = FloatProperty(
-        name="Offset",
-        description="Offset planes by this amount on the Y axis",
+        name='Offset',
+        description='Offset planes by this amount on the Y axis',
         default=0.1)
     hidden_layers = BoolProperty(
-        name="Import hidden layers",
-        description="Also import hidden layers",
+        name='Import hidden layers',
+        description='Also import hidden layers',
         default=False)
     scale_fac = FloatProperty(
-        name="Scale",
-        description="Scale of the planes (how many pixels make up 1 Blender unit)",
+        name='Scale',
+        description='Scale of the planes (how many pixels make up 1 Blender unit)',
         default=100)
     use_mipmap = BoolProperty(
-        name="MIP Map",
-        description="Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images",
+        name='MIP Map',
+        description='Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images',
         default=False)
     group_group = BoolProperty(
-        name="Group",
-        description="Put the images in groups",
+        name='Group',
+        description='Put the images in groups',
         default=True)
     group_empty = BoolProperty(
-        name="Empty",
-        description="Parent the images to an empty",
+        name='Empty',
+        description='Parent the images to an empty',
         default=True)
     group_layers = BoolProperty(
-        name="Layers",
-        description="Put the images on separate layers per PSD",
+        name='Layers',
+        description='Put the images on separate layers per PSD',
         default=True)
 
     def draw(self, context):
@@ -336,27 +335,27 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
 
         # Import options
         box = layout.box()
-        box.label("Import options", icon="FILTER")
+        box.label('Import options', icon='FILTER')
         col = box.column()
-        col.prop(self, "hidden_layers", icon="GHOST_ENABLED")
-        col.prop(self, "offset")
-        col.prop(self, "scale_fac")
+        col.prop(self, 'hidden_layers', icon='GHOST_ENABLED')
+        col.prop(self, 'offset')
+        col.prop(self, 'scale_fac')
         # Grouping options
         box = layout.box()
-        box.label("Grouping", icon="GROUP")
+        box.label('Grouping', icon='GROUP')
         row = box.row(align=True)
-        row.prop(self, "group_group", toggle=True)
-        row.prop(self, "group_empty", toggle=True)
-        row.prop(self, "group_layers", toggle=True)
+        row.prop(self, 'group_group', toggle=True)
+        row.prop(self, 'group_empty', toggle=True)
+        row.prop(self, 'group_layers', toggle=True)
         # Material options (not much for now)
         box = layout.box()
-        box.label("Material options", icon="MATERIAL_DATA")
+        box.label('Material options', icon='MATERIAL_DATA')
         col = box.column()
         if self.use_mipmap:
-            mipmap_icon = "ANTIALIASED"
+            mipmap_icon = 'ANTIALIASED'
         else:
-            mipmap_icon = "ALIASED"
-        col.prop(self, "use_mipmap", icon=mipmap_icon, toggle=True)
+            mipmap_icon = 'ALIASED'
+        col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
 
     def execute(self, context):
         editmode = context.user_preferences.edit.use_enter_edit_mode
@@ -386,7 +385,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
             #     continue
             layer_info, png_dir = parse_psd(self, psd_file)
             # import_images(self, layer_info, png_dir, f.name, layers)
-        print("\nFiles imported in {s:.2f} seconds".format(
+        print('\nFiles imported in {s:.2f} seconds'.format(
             s=time.time() - start_time))
 
         context.user_preferences.edit.use_enter_edit_mode = editmode
