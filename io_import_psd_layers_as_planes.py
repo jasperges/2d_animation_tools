@@ -85,34 +85,64 @@ def parse_psd(self, psd_file):
                          string.ascii_uppercase))
         return ''.join(random.choice(chars) for _ in range(length))
 
-    def parse_layer(layer, layer_list):
-        for layer in layer.layers:
-            if not hidden_layers and not layer.visible_global:
-                continue
-            if isinstance(layer, psd_tools.Layer):
-                # This is a normal layer we sould import as a textured plane
+    def parse_layer(layer, parent='', layer_list=[]):
+        if not isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
+            if ((not hidden_layers and not layer.visible_global) or
+                    (not hasattr(layer, 'layers') or not layer.layers)):
+                return
+            layer_name = bpy.path.clean_name(layer.name)
+            parent = '_'.join((layer_name, generate_random_id()))
+        else:
+            parent = 'root'
+        for sub_layer in layer.layers:
+            sub_layer_name = bpy.path.clean_name(sub_layer.name)
+            name = '_'.join((sub_layer_name, generate_random_id()))
+            if isinstance(sub_layer, psd_tools.Layer):
+                # This is a normal layer we sould export it as a png
+                png_file = os.path.join(png_dir, ''.join((name, ".png")))
+                layer_image = layer.as_PIL()
+                layer_image.save(png_file)
                 width = layer.bbox.width
                 height = layer.bbox.height
                 x = layer.bbox.x1
                 y = layer.bbox.y1
-                layer_list.append({layer.name: {"width": width,
-                                                "height": height,
-                                                "x": x,
-                                                "y": y}})
-                # Export png
-                # Add plane (correct size, texture and location)
-                # Add plane to groups (if option checked)
-                # Parent plane to empty (if option checked)
-                # Put plane on correct layer (if option checked)
+                layer_list.append({name: {'width': width,
+                                          'height': height,
+                                          'x': x,
+                                          'y': y,
+                                          'layer_type': 'layer',
+                                          'parent': parent}})
             else:
-                # This is the whole psd file or a layer group
-                sub_list = [layer.name]
-                layer_list.append(sub_list)
-                # Add empty (if option checked)
-                # Add empty to groups (if option checked)
-                # Parent empty to empty (if option checked and not whole psd file)
-                # Put empty on correct layer (if option checked)
-                parse_layer(layer, sub_list)
+                # This is a layer group
+                layer_list.append({name: {'layer_type': 'group',
+                                          'parent': parent}})
+            parse_layer(sub_layer, parent=name, layer_list=layer_list)
+        return layer_list
+
+        # if isinstance(layer, psd_tools.Layer):
+        #     # This is a normal layer we sould import as a textured plane
+        #     width = layer.bbox.width
+        #     height = layer.bbox.height
+        #     x = layer.bbox.x1
+        #     y = layer.bbox.y1
+        #     layer_list.append({layer.name: {"width": width,
+        #                                     "height": height,
+        #                                     "x": x,
+        #                                     "y": y}})
+        #     # Export png
+        #     # Add plane (correct size, texture and location)
+        #     # Add plane to groups (if option checked)
+        #     # Parent plane to empty (if option checked)
+        #     # Put plane on correct layer (if option checked)
+        # else:
+        #     # This is the whole psd file or a layer group
+        #     sub_list = [layer.name]
+        #     layer_list.append(sub_list)
+        #     # Add empty (if option checked)
+        #     # Add empty to groups (if option checked)
+        #     # Parent empty to empty (if option checked and not whole psd file)
+        #     # Put empty on correct layer (if option checked)
+        #     parse_layer(layer, sub_list)
 
     print("parsing: {}".format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
@@ -121,12 +151,14 @@ def parse_psd(self, psd_file):
     if not os.path.isdir(png_dir):
         os.mkdir(png_dir)
     psd = psd_tools.PSDImage.load(psd_file)
-    layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
-    layer_list = []
-    parse_layer(psd, layer_list)
-    layer_info["layers"] = layer_list
+    # layer_info = {"image_size": (psd.bbox.width, psd.bbox.height)}
+    # layer_list = []
+    layer_info = parse_layer(psd)
+    # layer_info["layers"] = layer_list
 
-    print(layer_info)
+    # print(layer_info)
+    for l in layer_info:
+        print(l)
 
     return (layer_info, png_dir)
 
