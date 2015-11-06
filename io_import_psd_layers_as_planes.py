@@ -100,7 +100,7 @@ def parse_psd(self, psd_file):
             if isinstance(sub_layer, psd_tools.Layer):
                 # This is a normal layer we sould export it as a png
                 png_file = os.path.join(png_dir, ''.join((name, ".png")))
-                layer_image = layer.as_PIL()
+                layer_image = sub_layer.as_PIL()
                 layer_image.save(png_file)
                 width = layer.bbox.width
                 height = layer.bbox.height
