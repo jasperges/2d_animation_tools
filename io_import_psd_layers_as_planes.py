@@ -91,12 +91,14 @@ def parse_psd(self, psd_file):
                     (not hasattr(layer, 'layers') or not layer.layers)):
                 return
             layer_name = bpy.path.clean_name(layer.name)
-            parent = '_'.join((layer_name, generate_random_id()))
+            # parent = '_'.join((layer_name, generate_random_id()))
+            parent = '{name}_{id}'.format(name=layer_name, id=layer.layer_id)
         else:
             parent = 'root'
         for sub_layer in layer.layers:
             sub_layer_name = bpy.path.clean_name(sub_layer.name)
-            name = '_'.join((sub_layer_name, generate_random_id()))
+            # name = '_'.join((sub_layer_name, generate_random_id()))
+            name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer.layer_id)
             if isinstance(sub_layer, psd_tools.Layer):
                 # This is a normal layer we sould export it as a png
                 png_file = os.path.join(png_dir, ''.join((name, ".png")))
@@ -157,8 +159,8 @@ def parse_psd(self, psd_file):
     # layer_info["layers"] = layer_list
 
     # print(layer_info)
-    for l in layer_info:
-        print(l)
+    # for l in layer_info:
+    #     print(l)
 
     return (layer_info, png_dir)
 
@@ -375,14 +377,14 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 layernum = (cur_layer + i) % 20
                 layers[layernum] = True
             psd_file = os.path.join(d, f.name)
-            try:
-                layer_info, png_dir = parse_psd(self, psd_file)
-            except TypeError:   # None is returned, so something went wrong.
-                msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
-                self.report({'ERROR'}, msg)
-                print("*** {}".format(msg))
-                continue
-            # layer_info, png_dir = parse_psd(self, psd_file)
+            # try:
+            #     layer_info, png_dir = parse_psd(self, psd_file)
+            # except TypeError:   # None is returned, so something went wrong.
+            #     msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
+            #     self.report({'ERROR'}, msg)
+            #     print("*** {}".format(msg))
+            #     continue
+            layer_info, png_dir = parse_psd(self, psd_file)
             # import_images(self, layer_info, png_dir, f.name, layers)
         print("\nFiles imported in {s:.2f} seconds".format(
             s=time.time() - start_time))
