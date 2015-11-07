@@ -22,6 +22,8 @@
 import os
 import time
 import math
+import random
+import string
 import psd_tools
 import bpy
 from bpy.props import (BoolProperty,
@@ -44,20 +46,33 @@ def parse_psd(self, psd_file):
 
     hidden_layers = self.hidden_layers
 
+    def generate_random_id(length=8):
+        chars = ''.join((string.digits,
+                         string.ascii_lowercase,
+                         string.ascii_uppercase))
+        return ''.join(random.choice(chars) for _ in range(length))
+
     def parse_layer(layer, parent='', layer_list=[]):
         if not isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
             if ((not hidden_layers and not layer.visible_global) or
                     (not hasattr(layer, 'layers') or not layer.layers)):
+                parents.pop()
                 return
             layer_name = bpy.path.clean_name(layer.name)
-            parent = '{name}_{id}'.format(name=layer_name, id=layer.layer_id)
+            random.seed(''.join((psd_file, ''.join(parents), layer_name)))
+            layer_id = generate_random_id()
+            parent = '{name}_{id}'.format(name=layer_name, id=layer_id)
         else:
-            parent = 'root'
+            parent = psd_name
         for sub_layer in layer.layers:
             if not hidden_layers and not sub_layer.visible_global:
                 continue
             sub_layer_name = bpy.path.clean_name(sub_layer.name)
-            name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer.layer_id)
+            if not parent in parents:
+                parents.append(parent)
+            random.seed(''.join((psd_file, ''.join(parents), sub_layer_name)))
+            sub_layer_id = generate_random_id()
+            name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer_id)
             if isinstance(sub_layer, psd_tools.Layer):
                 # This is a normal layer we sould export it as a png
                 png_file = os.path.join(png_dir, ''.join((name, '.png')))
@@ -72,11 +87,11 @@ def parse_psd(self, psd_file):
                                           'x': x,
                                           'y': y,
                                           'layer_type': 'layer',
-                                          'parent': parent}))
+                                          'parents': parents.copy()}))
             else:
                 # This is a layer group
                 layer_list.append((name, {'layer_type': 'group',
-                                          'parent': parent}))
+                                          'parents': parents.copy()}))
             parse_layer(sub_layer, parent=name, layer_list=layer_list)
         return layer_list
 
@@ -87,6 +102,7 @@ def parse_psd(self, psd_file):
     if not os.path.isdir(png_dir):
         os.mkdir(png_dir)
     psd = psd_tools.PSDImage.load(psd_file)
+    parents = []
     layer_info = parse_layer(psd)
     image_size = (psd.bbox.width, psd.bbox.height)
 
@@ -109,10 +125,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
         listOfBool layers - the layer(s) to put the objects on
     '''
 
-    def group_object(obj, parent, root_name,
-                     root_group, group_empty, group_group):
-        if parent == 'root':
-            parent = root_name
+    def group_object(obj, parent, root_group, group_empty, group_group):
         if group_empty:
             if (parent in bpy.data.objects and
                     bpy.data.objects[parent].type == 'EMPTY'):
@@ -160,12 +173,16 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
         print(msg, end='\r')
         l = layer[1]
         if l['layer_type'] == 'group' and group_empty:
-            empty = bpy.data.objects.new(layer[0], None)
+            name = layer[0]
+            if name != root_name:
+                name = '_'.join(name.split('_')[:-1])
+            empty = bpy.data.objects.new(name, None)
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
-            parent = l['parent']
-            group_object(empty, parent, root_name,
-                         root_group, group_empty, group_group)
+            parent = l['parents'][-1]
+            if parent != root_name:
+                parent = '_'.join(parent.split('_')[:-1])
+            group_object(empty, parent, root_group, group_empty, group_group)
         else:
             loc_x = (-image_width / 2 + l['width'] / 2 + l['x']) / scale_fac
             loc_y = offset * i
@@ -174,7 +191,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
                                              rotation=(0.5 * math.pi, 0, 0))
             plane = bpy.context.object
             plane.layers = layers
-            plane.name = layer[0]
+            plane.name = '_'.join(layer[0].split('_')[:-1])
             # Add UV's and add image to UV's
             img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
             img = bpy.data.images.load(img_path)
@@ -200,9 +217,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
             if use_transparency:
                 mat.texture_slots[0].use_map_alpha = True
             plane.data.materials.append(mat)
-            parent = l['parent']
-            group_object(plane, parent, root_name,
-                         root_group, group_empty, group_group)
+            parent = l['parents'][-1]
+            if parent != root_name:
+                parent = '_'.join(parent.split('_')[:-1])
+            group_object(plane, parent, root_group, group_empty, group_group)
             i += 1
 
 
