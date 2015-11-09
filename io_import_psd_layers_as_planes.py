@@ -33,6 +33,13 @@ from bpy.props import (BoolProperty,
 from bpy_extras.io_utils import ImportHelper
 
 
+def generate_random_id(length=8):
+    chars = ''.join((string.digits,
+                     string.ascii_lowercase,
+                     string.ascii_uppercase))
+    return ''.join(random.choice(chars) for _ in range(length))
+
+
 def parse_psd(self, psd_file):
     '''
     parse_psd(string psd_file) -> dict layer_info
@@ -45,12 +52,6 @@ def parse_psd(self, psd_file):
     '''
 
     hidden_layers = self.hidden_layers
-
-    def generate_random_id(length=8):
-        chars = ''.join((string.digits,
-                         string.ascii_lowercase,
-                         string.ascii_uppercase))
-        return ''.join(random.choice(chars) for _ in range(length))
 
     def parse_layer(layer, parent='', layer_list=[]):
         if not isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
@@ -109,10 +110,10 @@ def parse_psd(self, psd_file):
     return (layer_info, image_size, png_dir)
 
 
-def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
+def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, import_id):
     '''
     create_objects(class self, list layer_info, tuple image_size,
-                  string img_dir, string psd_name, list layers)
+                  string img_dir, string psd_name, list layers, string import_id)
 
         Imports all png images that are in layer_info from img_dir
         into Blender as planes and places these planes correctly.
@@ -123,22 +124,31 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
         string img_dir    - the path to the png images
         string psd_name   - the name of the psd file
         listOfBool layers - the layer(s) to put the objects on
+        string import_id  - used to identify this import
     '''
 
-    def group_object(obj, parent, root_group, group_empty, group_group):
+    def get_parent(parent_name, import_id):
+        for obj in bpy.data.objects:
+            if parent_name in obj.name and obj['import_id'] == import_id:
+                return obj
+
+    def group_object(obj, parent, root_group, group_empty, group_group, import_id):
         if group_empty:
-            if (parent in bpy.data.objects and
-                    bpy.data.objects[parent].type == 'EMPTY'):
-                parent_empty = bpy.data.objects[parent]
-            else:
-                parent_empty = bpy.data.objects.new(parent, None)
-                bpy.context.scene.objects.link(parent_empty)
-                parent_empty.layers = layers
+            parent_empty = get_parent(parent, import_id)
+            # parent_obj = get_parent(parent, import_id)
+            # if parent_obj:
+                # parent_empty = parent_obj
+            # else:
+            #     parent_empty = bpy.data.objects.new(parent, None)
+            #     bpy.context.scene.objects.link(parent_empty)
+            #     parent_empty.layers = layers
+            #     parent_empty['import_id'] = import_id
             obj.parent = parent_empty
         if group_group:
             # Only put objects in one group per psd file
             try:
-                root_group.objects.link(empty)
+                # root_group.objects.link(parent_empty)
+                root_group.objects.link(obj)
             except RuntimeError:
                 pass
 
@@ -160,6 +170,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
         empty = bpy.data.objects.new(root_name, None)
         bpy.context.scene.objects.link(empty)
         empty.layers = layers
+        empty['import_id'] = import_id
         try:
             root_group.objects.link(empty)
         except NameError:
@@ -179,10 +190,11 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
             empty = bpy.data.objects.new(name, None)
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
+            empty['import_id'] = import_id
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
-            group_object(empty, parent, root_group, group_empty, group_group)
+            group_object(empty, parent, root_group, group_empty, group_group, import_id)
         else:
             loc_x = (-image_width / 2 + l['width'] / 2 + l['x']) / scale_fac
             loc_y = offset * i
@@ -192,6 +204,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
             plane = bpy.context.object
             plane.layers = layers
             plane.name = '_'.join(layer[0].split('_')[:-1])
+            plane['import_id'] = import_id
             # Add UV's and add image to UV's
             img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
             img = bpy.data.images.load(img_path)
@@ -220,7 +233,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers):
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
-            group_object(plane, parent, root_group, group_empty, group_group)
+            group_object(plane, parent, root_group, group_empty, group_group, import_id)
             i += 1
 
 
@@ -322,6 +335,8 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         fils = self.properties.files
         layer_list = 20 * [False]
         cur_layer = get_current_layer()
+        random.seed()
+        import_id = generate_random_id()
 
         for i, f in enumerate(fils):
             layers = layer_list[:]
@@ -338,7 +353,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
                 continue
             # layer_info, image_size, png_dir = parse_psd(self, psd_file)
             create_objects(self, layer_info, image_size,
-                           png_dir, f.name, layers)
+                           png_dir, f.name, layers, import_id)
             print(''.join(('  Done', 74 * ' ')))
         print('\nFiles imported in {s:.2f} seconds'.format(
             s=time.time() - start_time))
