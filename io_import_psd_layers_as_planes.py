@@ -167,12 +167,12 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     if group_group:
         root_group = bpy.data.groups.new(root_name)
     if group_empty:
-        empty = bpy.data.objects.new(root_name, None)
-        bpy.context.scene.objects.link(empty)
-        empty.layers = layers
-        empty['import_id'] = import_id
+        root_empty = bpy.data.objects.new(root_name, None)
+        bpy.context.scene.objects.link(root_empty)
+        root_empty.layers = layers
+        root_empty['import_id'] = import_id
         try:
-            root_group.objects.link(empty)
+            root_group.objects.link(root_empty)
         except NameError:
             pass
 
@@ -235,6 +235,11 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
                 parent = '_'.join(parent.split('_')[:-1])
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
             i += 1
+
+    if group_empty:
+        bpy.ops.object.select_all(action='DESELECT')
+        root_empty.select = True
+        bpy.context.scene.objects.active = root_empty
 
 
 def get_current_layer():
