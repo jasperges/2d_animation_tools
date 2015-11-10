@@ -206,6 +206,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             vector_sum += v
         return vector_sum
 
+    rel_path = self.rel_path
     group_empty = self.group_empty
     group_group = self.group_group
     offset = self.offset
@@ -267,6 +268,8 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             # Add UV's and add image to UV's
             img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
             img = bpy.data.images.load(img_path)
+            if rel_path:
+                img.filepath = bpy.path.relpath(img.filepath)
             plane.data.uv_textures.new()
             plane.data.uv_textures[0].data[0].image = img
             # Scale plane according to image size
@@ -361,11 +364,16 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         name='Layers',
         description='Put the images on separate layers per PSD',
         default=False)
+    rel_path = BoolProperty(
+        name='Relative Path',
+        description='Select the file relative to the blend file',
+        default=True)
 
     def draw(self, context):
         layout = self.layout
 
         # Import options
+        layout.prop(self, 'rel_path')
         box = layout.box()
         box.label('Import options', icon='FILTER')
         col = box.column()
