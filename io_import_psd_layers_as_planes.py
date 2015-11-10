@@ -175,13 +175,36 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     def group_object(obj, parent, root_group, group_empty, group_group, import_id):
         if group_empty:
             parent_empty = get_parent(parent, import_id)
+            matrix_parent_inverse = parent_empty.matrix_world.inverted()
             obj.parent = parent_empty
+            obj.matrix_parent_inverse = matrix_parent_inverse
         if group_group:
             # Only put objects in one group per psd file
             try:
                 root_group.objects.link(obj)
             except RuntimeError:
                 pass
+
+    def get_transforms(layer):
+        loc_x = (-image_width / 2 + layer['width'] / 2 + layer['x']) / scale_fac
+        loc_y = offset * i
+        loc_z = (image_height - layer['height'] / 2 - layer['y']) / scale_fac
+        rot_x = 0.5 * math.pi
+        rot_y = 0
+        rot_z = 0
+        scale_x = layer['width'] / scale_fac / 2
+        scale_y = layer['height'] / scale_fac / 2
+        scale_z = 1
+        location = (loc_x, loc_y, loc_z)
+        rotation = (rot_x, rot_y, rot_z)
+        scale = (scale_x, scale_y, scale_z)
+        return (location, rotation, scale)
+
+    def sum_vectors(vectors):
+        vector_sum = mathutils.Vector()
+        for v in vectors:
+            vector_sum += v
+        return vector_sum
 
     group_empty = self.group_empty
     group_group = self.group_group
@@ -222,16 +245,21 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
             empty['import_id'] = import_id
+            # Position empty at median of children
+            child_locations = []
+            for child in l['children']:
+                for cl in layer_info:
+                    if not cl[1]['layer_type'] == 'group':
+                        child_locations.append(mathutils.Vector(get_transforms(cl[1])[0]))
+            empty.location = sum_vectors(child_locations) / len(l['children'])
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
         else:
-            loc_x = (-image_width / 2 + l['width'] / 2 + l['x']) / scale_fac
-            loc_y = offset * i
-            loc_z = (image_height - l['height'] / 2 - l['y']) / scale_fac
-            bpy.ops.mesh.primitive_plane_add(location=(loc_x, loc_y, loc_z),
-                                             rotation=(0.5 * math.pi, 0, 0))
+            location, rotation, scale = get_transforms(l)
+            bpy.ops.mesh.primitive_plane_add(location=location,
+                                             rotation=rotation)
             plane = bpy.context.object
             plane.layers = layers
             plane.name = '_'.join(layer[0].split('_')[:-1])
@@ -242,9 +270,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             plane.data.uv_textures.new()
             plane.data.uv_textures[0].data[0].image = img
             # Scale plane according to image size
-            scale_x = l['width'] / scale_fac / 2
-            scale_y = l['height'] / scale_fac / 2
-            plane.scale = (scale_x, scale_y, 1)
+            plane.scale = scale
             # Apply rotation and scale
             bpy.ops.object.transform_apply(rotation=True, scale=True)
             # Create material
@@ -268,10 +294,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             i += 1
 
     if group_empty:
-        parent_empties = get_all_parent_empties(import_id)
-        for empty in parent_empties:
-            if not empty == root_empty:
-                pivot_to_children(empty)
+        # parent_empties = get_all_parent_empties(import_id)
+        # for empty in parent_empties:
+        #     if not empty == root_empty:
+        #         pivot_to_children(empty)
         bpy.ops.object.select_all(action='DESELECT')
         root_empty.select = True
         bpy.context.scene.objects.active = root_empty
