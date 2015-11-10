@@ -169,19 +169,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     def group_object(obj, parent, root_group, group_empty, group_group, import_id):
         if group_empty:
             parent_empty = get_parent(parent, import_id)
-            # parent_obj = get_parent(parent, import_id)
-            # if parent_obj:
-                # parent_empty = parent_obj
-            # else:
-            #     parent_empty = bpy.data.objects.new(parent, None)
-            #     bpy.context.scene.objects.link(parent_empty)
-            #     parent_empty.layers = layers
-            #     parent_empty['import_id'] = import_id
             obj.parent = parent_empty
         if group_group:
             # Only put objects in one group per psd file
             try:
-                # root_group.objects.link(parent_empty)
                 root_group.objects.link(obj)
             except RuntimeError:
                 pass
