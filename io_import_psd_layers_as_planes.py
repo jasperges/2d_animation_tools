@@ -24,6 +24,7 @@ import time
 import math
 import random
 import string
+from collections import defaultdict
 import psd_tools
 import bpy
 import mathutils
@@ -82,7 +83,7 @@ def parse_psd(self, psd_file):
 
     hidden_layers = self.hidden_layers
 
-    def parse_layer(layer, parent='', layer_list=[]):
+    def parse_layer(layer, parent='', children=defaultdict(list), layer_list=[]):
         if not isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
             if ((not hidden_layers and not layer.visible_global) or
                     (not hasattr(layer, 'layers') or not layer.layers)):
@@ -122,7 +123,12 @@ def parse_psd(self, psd_file):
                 # This is a layer group
                 layer_list.append((name, {'layer_type': 'group',
                                           'parents': parents.copy()}))
-            parse_layer(sub_layer, parent=name, layer_list=layer_list)
+            children[parent].append(name)
+            parse_layer(sub_layer, parent=name, children=children, layer_list=layer_list)
+        for parent in children:
+            for p in layer_list:
+                if parent == p[0]:
+                    p[1]['children'] = children[parent]
         return layer_list
 
     print('\nparsing: {}'.format(psd_file))
