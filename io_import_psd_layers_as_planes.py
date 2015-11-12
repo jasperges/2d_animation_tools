@@ -174,6 +174,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
 
     def group_object(obj, parent, root_group, group_empty, group_group, import_id):
         if group_empty:
+            bpy.context.scene.update()
             parent_empty = get_parent(parent, import_id)
             matrix_parent_inverse = parent_empty.matrix_world.inverted()
             obj.parent = parent_empty
@@ -251,10 +252,11 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             children_count = 0
             for child in l['children']:
                 for cl in layer_info:
-                    if not cl[1]['layer_type'] == 'group':
+                    if cl[0] == child and not cl[1]['layer_type'] == 'group':
                         children_count += 1
                         child_locations.append(mathutils.Vector(get_transforms(cl[1])[0]))
-            empty.location = sum_vectors(child_locations) / children_count
+            median = sum_vectors(child_locations) / children_count
+            empty.location = (median.x, 0, median.z)
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
