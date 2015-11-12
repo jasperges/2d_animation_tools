@@ -308,6 +308,8 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         bpy.ops.object.select_all(action='DESELECT')
         root_empty.select = True
         bpy.context.scene.objects.active = root_empty
+        # Move root empyt to cursor position
+        root_empty.location = bpy.context.scene.cursor_location
 
 
 def get_current_layer():
