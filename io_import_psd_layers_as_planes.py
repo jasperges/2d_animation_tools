@@ -27,12 +27,14 @@ import string
 from collections import defaultdict
 import psd_tools
 import bpy
-import mathutils
+from mathutils import Vector
 from bpy.props import (BoolProperty,
                        StringProperty,
                        FloatProperty,
                        CollectionProperty)
-from bpy_extras.io_utils import ImportHelper
+from bpy_extras.io_utils import (ImportHelper,
+                                 orientation_helper_factory,
+                                 axis_conversion)
 
 
 def generate_random_id(length=8):
@@ -160,12 +162,12 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         scale_x = layer['width'] / scale_fac / 2
         scale_y = layer['height'] / scale_fac / 2
         scale_z = 1
-        location = mathutils.Vector((loc_x, loc_y, loc_z))
-        scale = mathutils.Vector((scale_x, scale_y, scale_z))
+        location = Vector((loc_x, loc_y, loc_z))
+        scale = Vector((scale_x, scale_y, scale_z))
         return (location, scale)
 
     def sum_vectors(vectors):
-        vector_sum = mathutils.Vector()
+        vector_sum = Vector()
         for v in vectors:
             vector_sum += v
         return vector_sum
@@ -177,7 +179,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             for cl in layer_info:
                 if cl[0] == child and not cl[1]['layer_type'] == 'group':
                     children_count += 1
-                    child_locations.append(mathutils.Vector(get_transforms(cl[1])[0]))
+                    child_locations.append(Vector(get_transforms(cl[1])[0]))
         return sum_vectors(child_locations) / children_count
 
     def create_texture(name, img):
@@ -198,7 +200,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             mat.texture_slots[0].use_map_alpha = True
         return mat
 
-    def create_textured_plane(name, transforms, import_id, img_path):
+    def create_textured_plane(name, transforms, global_matrix, import_id, img_path):
         # Create plane with 'forward: -y' and 'up: z'
         # Then use axis conversion to change to orientation specified by user
         loc, scale = transforms
@@ -206,6 +208,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
                  (loc.x + scale.x, loc.y, loc.z + scale.y),
                  (loc.x + scale.x, loc.y, loc.z - scale.y),
                  (loc.x - scale.x, loc.y, loc.z - scale.y)]
+        verts = [global_matrix * Vector(v) for v in verts]
         faces = [(3, 2, 1, 0)]
         mesh = bpy.data.meshes.new(name)
         mesh.from_pydata(verts, [], faces)
@@ -229,6 +232,8 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     rel_path = self.rel_path
     group_empty = self.group_empty
     group_group = self.group_group
+    axis_forward = self.axis_forward
+    axis_up = self.axis_up
     offset = self.offset
     scale_fac = self.scale_fac
     use_mipmap = self.use_mipmap
@@ -237,6 +242,11 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
 
     image_width = image_size[0]
     image_height = image_size[1]
+
+    global_matrix = axis_conversion(from_forward='-Y',
+                                    from_up='Z',
+                                    to_forward=axis_forward,
+                                    to_up=axis_up).to_4x4()
 
     root_name = os.path.splitext(psd_name)[0]
     if group_group:
@@ -268,7 +278,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             empty['import_id'] = import_id
             # Position empty at median of children
             median = get_children_median(l)
-            empty.location = (median.x, 0, median.z)
+            empty.location = global_matrix * Vector((median.x, 0, median.z))
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
@@ -277,7 +287,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             transforms = get_transforms(l)
             img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
             name = '_'.join(layer[0].split('_')[:-1])
-            plane = create_textured_plane(name, transforms, import_id, img_path)
+            plane = create_textured_plane(name, transforms, global_matrix, import_id, img_path)
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
@@ -301,9 +311,12 @@ def get_current_layer():
         if l:
             return i
 
+IOPSDOrientationHelper = orientation_helper_factory("IOPSDOrientationHelper",
+                                                    axis_forward='-Y',
+                                                    axis_up='Z')
 
 # Actual import operator.
-class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
+class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper):
 
     '''Import PSD as planes'''
     bl_idname = 'import_scene.psd'
@@ -364,6 +377,8 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
         box.label('Import options', icon='FILTER')
         col = box.column()
         col.prop(self, 'hidden_layers', icon='GHOST_ENABLED')
+        col.prop(self, 'axis_forward')
+        col.prop(self, 'axis_up')
         col.prop(self, 'offset')
         col.prop(self, 'scale_fac')
         # Grouping options
