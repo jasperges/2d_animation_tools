@@ -24,7 +24,7 @@ import time
 import math
 import random
 import string
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import psd_tools
 import bpy
 from mathutils import Vector
@@ -57,7 +57,7 @@ def parse_psd(self, psd_file):
 
     hidden_layers = self.hidden_layers
 
-    def parse_layer(layer, parent='', children=defaultdict(list), layer_list=[]):
+    def parse_layer(layer, parent='', children=defaultdict(list), layer_list=OrderedDict()):
         if not isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
             if ((not hidden_layers and not layer.visible_global) or
                     (not hasattr(layer, 'layers') or not layer.layers)):
@@ -87,22 +87,26 @@ def parse_psd(self, psd_file):
                 height = sub_layer.bbox.height
                 x = sub_layer.bbox.x1
                 y = sub_layer.bbox.y1
-                layer_list.append((name, {'width': width,
-                                          'height': height,
-                                          'x': x,
-                                          'y': y,
-                                          'layer_type': 'layer',
-                                          'parents': parents.copy()}))
+                layer_list[name] = {
+                    'width': width,
+                    'height': height,
+                    'x': x,
+                    'y': y,
+                    'layer_type': 'layer',
+                    'parents': parents.copy()
+                    }
             else:
                 # This is a layer group
-                layer_list.append((name, {'layer_type': 'group',
-                                          'parents': parents.copy()}))
+                layer_list[name] = {
+                    'layer_type': 'group',
+                    'parents': parents.copy()
+                    }
             children[parent].append(name)
             parse_layer(sub_layer, parent=name, children=children, layer_list=layer_list)
         for parent in children:
-            for p in layer_list:
-                if parent == p[0]:
-                    p[1]['children'] = children[parent]
+            p = layer_list.get(parent)
+            if p:
+                p['children'] = children[parent]
         return layer_list
 
     print('\nparsing: {}'.format(psd_file))
@@ -114,6 +118,11 @@ def parse_psd(self, psd_file):
     psd = psd_tools.PSDImage.load(psd_file)
     parents = []
     layer_info = parse_layer(psd)
+    i = 0
+    for info in layer_info.values():
+        if info['layer_type'] == 'layer':
+            info['offset'] = i
+            i += 1
     image_size = (psd.bbox.width, psd.bbox.height)
 
     return (layer_info, image_size, png_dir)
@@ -157,7 +166,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
 
     def get_transforms(layer):
         loc_x = (-image_width / 2 + layer['width'] / 2 + layer['x']) / scale_fac
-        loc_y = offset * i
+        loc_y = offset * layer['offset']
         loc_z = (image_height - layer['height'] / 2 - layer['y']) / scale_fac
         scale_x = layer['width'] / scale_fac / 2
         scale_y = layer['height'] / scale_fac / 2
@@ -176,10 +185,9 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         child_locations = []
         children_count = 0
         for child in obj['children']:
-            for cl in layer_info:
-                if cl[0] == child and not cl[1]['layer_type'] == 'group':
-                    children_count += 1
-                    child_locations.append(Vector(get_transforms(cl[1])[0]))
+            if layer_info[child]['layer_type'] == 'layer':
+                children_count += 1
+                child_locations.append(Vector(get_transforms(layer_info[child])[0]))
         return sum_vectors(child_locations) / children_count
 
     def create_texture(name, img):
@@ -204,20 +212,21 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         # Create plane with 'forward: -y' and 'up: z'
         # Then use axis conversion to change to orientation specified by user
         loc, scale = transforms
-        verts = [(loc.x - scale.x, loc.y, loc.z + scale.y),
-                 (loc.x + scale.x, loc.y, loc.z + scale.y),
-                 (loc.x + scale.x, loc.y, loc.z - scale.y),
-                 (loc.x - scale.x, loc.y, loc.z - scale.y)]
+        verts = [(-scale.x, 0, scale.y),
+                 (scale.x, 0, scale.y),
+                 (scale.x, 0, -scale.y),
+                 (-scale.x, 0, -scale.y)]
         verts = [global_matrix * Vector(v) for v in verts]
         faces = [(3, 2, 1, 0)]
         mesh = bpy.data.meshes.new(name)
         mesh.from_pydata(verts, [], faces)
         plane = bpy.data.objects.new(name, mesh)
         bpy.context.scene.objects.link(plane)
+        plane.location = global_matrix * loc
         plane.layers = layers
         plane['import_id'] = import_id
         # Add UV's and add image to UV's
-        img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
+        img_path = os.path.join(img_dir, ''.join((layer, '.png')))
         img = bpy.data.images.load(img_path)
         if rel_path:
             img.filepath = bpy.path.relpath(img.filepath)
@@ -261,15 +270,16 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         except NameError:
             pass
 
-    i = 0
-    for layer in layer_info:
-        msg = '  - processing: {layer}'.format(layer=layer[0])
+    for layer, info in layer_info.items():
+        msg = '  - processing: {layer}'.format(layer=layer)
         spaces = (80 - len(msg)) * ' '
         msg = ''.join((msg, spaces))
         print(msg, end='\r')
-        l = layer[1]
-        if l['layer_type'] == 'group' and group_empty:
-            name = layer[0]
+        name = layer
+        parent = info['parents'][-1]
+        if parent != root_name:
+            parent = '_'.join(parent.split('_')[:-1])
+        if info['layer_type'] == 'group' and group_empty:
             if name != root_name:
                 name = '_'.join(name.split('_')[:-1])
             empty = bpy.data.objects.new(name, None)
@@ -277,28 +287,21 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             empty.layers = layers
             empty['import_id'] = import_id
             # Position empty at median of children
-            median = get_children_median(l)
-            empty.location = global_matrix * Vector((median.x, 0, median.z))
-            parent = l['parents'][-1]
-            if parent != root_name:
-                parent = '_'.join(parent.split('_')[:-1])
+            median = get_children_median(info)
+            empty.location = global_matrix * median
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
         else:
-            transforms = get_transforms(l)
-            img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
-            name = '_'.join(layer[0].split('_')[:-1])
+            transforms = get_transforms(info)
+            img_path = os.path.join(img_dir, ''.join((layer, '.png')))
+            name = '_'.join(name.split('_')[:-1])
             plane = create_textured_plane(name, transforms, global_matrix, import_id, img_path)
-            parent = l['parents'][-1]
-            if parent != root_name:
-                parent = '_'.join(parent.split('_')[:-1])
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
-            i += 1
 
     if group_empty:
         bpy.ops.object.select_all(action='DESELECT')
         root_empty.select = True
         bpy.context.scene.objects.active = root_empty
-        # Move root empyt to cursor position
+        # Move root empty to cursor position
         root_empty.location = bpy.context.scene.cursor_location
 
 
