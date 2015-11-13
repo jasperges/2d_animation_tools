@@ -42,34 +42,6 @@ def generate_random_id(length=8):
     return ''.join(random.choice(chars) for _ in range(length))
 
 
-def pivot_to_children(obj):
-
-    def sum_vectors(vectors):
-        vector_sum = mathutils.Vector()
-        for v in vectors:
-            vector_sum += v
-        return vector_sum
-
-    def select_objects(objects):
-        for obj in objects:
-            obj.select = True
-
-    children = obj.children
-    child_world_mats = [child.matrix_world.copy() for child in children]
-    child_locations = [mat.translation for mat in child_world_mats]
-    child_median = sum_vectors(child_locations) / len(children)
-    new_location = obj.matrix_world.inverted() * child_median + obj.location
-    bpy.ops.object.select_all(action='DESELECT')
-    select_objects(children)
-    bpy.context.scene.objects.active = children[0]
-    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-    obj.location = new_location
-    bpy.ops.object.select_all(action='DESELECT')
-    select_objects(children)
-    bpy.context.scene.objects.active = obj
-    bpy.ops.object.parent_set()
-
-
 def parse_psd(self, psd_file):
     '''
     parse_psd(string psd_file) -> dict layer_info
@@ -166,11 +138,6 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         for obj in bpy.context.scene.objects:
             if parent_name in obj.name and obj['import_id'] == import_id:
                 return obj
-
-    def get_all_parent_empties(import_id):
-        for obj in bpy.context.scene.objects:
-            if obj.type == 'EMPTY' and obj['import_id'] == import_id:
-                yield obj
 
     def group_object(obj, parent, root_group, group_empty, group_group, import_id):
         if group_empty:
@@ -301,10 +268,6 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             i += 1
 
     if group_empty:
-        # parent_empties = get_all_parent_empties(import_id)
-        # for empty in parent_empties:
-        #     if not empty == root_empty:
-        #         pivot_to_children(empty)
         bpy.ops.object.select_all(action='DESELECT')
         root_empty.select = True
         bpy.context.scene.objects.active = root_empty
