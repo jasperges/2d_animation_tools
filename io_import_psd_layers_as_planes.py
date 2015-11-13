@@ -157,16 +157,12 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         loc_x = (-image_width / 2 + layer['width'] / 2 + layer['x']) / scale_fac
         loc_y = offset * i
         loc_z = (image_height - layer['height'] / 2 - layer['y']) / scale_fac
-        rot_x = 0.5 * math.pi
-        rot_y = 0
-        rot_z = 0
         scale_x = layer['width'] / scale_fac / 2
         scale_y = layer['height'] / scale_fac / 2
         scale_z = 1
-        location = (loc_x, loc_y, loc_z)
-        rotation = (rot_x, rot_y, rot_z)
-        scale = (scale_x, scale_y, scale_z)
-        return (location, rotation, scale)
+        location = mathutils.Vector((loc_x, loc_y, loc_z))
+        scale = mathutils.Vector((scale_x, scale_y, scale_z))
+        return (location, scale)
 
     def sum_vectors(vectors):
         vector_sum = mathutils.Vector()
@@ -203,12 +199,19 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         return mat
 
     def create_textured_plane(name, transforms, import_id, img_path):
-        location, rotation, scale = transforms
-        bpy.ops.mesh.primitive_plane_add(location=location,
-                                         rotation=rotation)
-        plane = bpy.context.object
+        # Create plane with 'forward: -y' and 'up: z'
+        # Then use axis conversion to change to orientation specified by user
+        loc, scale = transforms
+        verts = [(loc.x - scale.x, loc.y, loc.z + scale.y),
+                 (loc.x + scale.x, loc.y, loc.z + scale.y),
+                 (loc.x + scale.x, loc.y, loc.z - scale.y),
+                 (loc.x - scale.x, loc.y, loc.z - scale.y)]
+        faces = [(3, 2, 1, 0)]
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(verts, [], faces)
+        plane = bpy.data.objects.new(name, mesh)
+        bpy.context.scene.objects.link(plane)
         plane.layers = layers
-        plane.name = name
         plane['import_id'] = import_id
         # Add UV's and add image to UV's
         img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
@@ -217,11 +220,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             img.filepath = bpy.path.relpath(img.filepath)
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
-        # Scale plane according to image size
-        plane.scale = scale
-        # Apply rotation and scale
-        bpy.ops.object.transform_apply(rotation=True, scale=True)
-        # Create material
+        # Create and assign material
         tex = create_texture(name, img)
         mat = create_material(name, tex)
         plane.data.materials.append(mat)
@@ -275,7 +274,6 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
                 parent = '_'.join(parent.split('_')[:-1])
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
         else:
-            location, rotation, scale = get_transforms(l)
             transforms = get_transforms(l)
             img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
             name = '_'.join(layer[0].split('_')[:-1])
