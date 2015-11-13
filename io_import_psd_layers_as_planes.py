@@ -174,6 +174,59 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             vector_sum += v
         return vector_sum
 
+    def get_children_median(obj):
+        child_locations = []
+        children_count = 0
+        for child in obj['children']:
+            for cl in layer_info:
+                if cl[0] == child and not cl[1]['layer_type'] == 'group':
+                    children_count += 1
+                    child_locations.append(mathutils.Vector(get_transforms(cl[1])[0]))
+        return sum_vectors(child_locations) / children_count
+
+    def create_texture(name, img):
+        tex = bpy.data.textures.new(name, 'IMAGE')
+        tex.use_mipmap = use_mipmap
+        tex.image = img
+        return tex
+
+    def create_material(name, tex):
+        mat = bpy.data.materials.new(name)
+        mat.use_shadeless = use_shadeless
+        mat.use_transparency = use_transparency
+        if use_transparency:
+            mat.alpha = 0.0
+        mat.texture_slots.create(0)
+        mat.texture_slots[0].texture = tex
+        if use_transparency:
+            mat.texture_slots[0].use_map_alpha = True
+        return mat
+
+    def create_textured_plane(name, transforms, import_id, img_path):
+        location, rotation, scale = transforms
+        bpy.ops.mesh.primitive_plane_add(location=location,
+                                         rotation=rotation)
+        plane = bpy.context.object
+        plane.layers = layers
+        plane.name = name
+        plane['import_id'] = import_id
+        # Add UV's and add image to UV's
+        img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
+        img = bpy.data.images.load(img_path)
+        if rel_path:
+            img.filepath = bpy.path.relpath(img.filepath)
+        plane.data.uv_textures.new()
+        plane.data.uv_textures[0].data[0].image = img
+        # Scale plane according to image size
+        plane.scale = scale
+        # Apply rotation and scale
+        bpy.ops.object.transform_apply(rotation=True, scale=True)
+        # Create material
+        tex = create_texture(name, img)
+        mat = create_material(name, tex)
+        plane.data.materials.append(mat)
+        return plane
+
     rel_path = self.rel_path
     group_empty = self.group_empty
     group_group = self.group_group
@@ -215,14 +268,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             empty.layers = layers
             empty['import_id'] = import_id
             # Position empty at median of children
-            child_locations = []
-            children_count = 0
-            for child in l['children']:
-                for cl in layer_info:
-                    if cl[0] == child and not cl[1]['layer_type'] == 'group':
-                        children_count += 1
-                        child_locations.append(mathutils.Vector(get_transforms(cl[1])[0]))
-            median = sum_vectors(child_locations) / children_count
+            median = get_children_median(l)
             empty.location = (median.x, 0, median.z)
             parent = l['parents'][-1]
             if parent != root_name:
@@ -230,37 +276,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
         else:
             location, rotation, scale = get_transforms(l)
-            bpy.ops.mesh.primitive_plane_add(location=location,
-                                             rotation=rotation)
-            plane = bpy.context.object
-            plane.layers = layers
-            plane.name = '_'.join(layer[0].split('_')[:-1])
-            plane['import_id'] = import_id
-            # Add UV's and add image to UV's
+            transforms = get_transforms(l)
             img_path = os.path.join(img_dir, ''.join((layer[0], '.png')))
-            img = bpy.data.images.load(img_path)
-            if rel_path:
-                img.filepath = bpy.path.relpath(img.filepath)
-            plane.data.uv_textures.new()
-            plane.data.uv_textures[0].data[0].image = img
-            # Scale plane according to image size
-            plane.scale = scale
-            # Apply rotation and scale
-            bpy.ops.object.transform_apply(rotation=True, scale=True)
-            # Create material
-            tex = bpy.data.textures.new(layer[0], 'IMAGE')
-            tex.use_mipmap = use_mipmap
-            tex.image = img
-            mat = bpy.data.materials.new(layer[0])
-            mat.use_shadeless = use_shadeless
-            mat.use_transparency = use_transparency
-            if use_transparency:
-                mat.alpha = 0.0
-            mat.texture_slots.create(0)
-            mat.texture_slots[0].texture = tex
-            if use_transparency:
-                mat.texture_slots[0].use_map_alpha = True
-            plane.data.materials.append(mat)
+            name = '_'.join(layer[0].split('_')[:-1])
+            plane = create_textured_plane(name, transforms, import_id, img_path)
             parent = l['parents'][-1]
             if parent != root_name:
                 parent = '_'.join(parent.split('_')[:-1])
