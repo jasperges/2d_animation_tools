@@ -193,13 +193,39 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         else:
             return Vector()
 
+    def create_image():
+        img_path = os.path.join(img_dir, ''.join((layer, '.png')))
+        # Check if image already exists
+        for i in bpy.data.images:
+            if layer in i.name and (i.filepath == img_path or i.filepath == bpy.path.relpath(img_path)):
+                i.reload()
+                return i
+        # Image not found, create a new one
+        img = bpy.data.images.load(img_path)
+        if rel_path:
+            img.filepath = bpy.path.relpath(img.filepath)
+        return img
+
     def create_texture(name, img):
+        # Check if texture already exists
+        for t in bpy.data.textures:
+            if name in t.name and t.type == 'IMAGE' and t.image == img:
+                return t
+        # Texture not found, create a new one
         tex = bpy.data.textures.new(name, 'IMAGE')
         tex.use_mipmap = use_mipmap
         tex.image = img
         return tex
 
     def create_material(name, tex):
+        # Check if material already exists
+        for m in bpy.data.materials:
+            if name in m.name and m.texture_slots:
+                for ts in m.texture_slots:
+                    if ts:
+                        if ts.texture == tex:
+                            return m
+        # Material not found, create a new one
         mat = bpy.data.materials.new(name)
         mat.use_shadeless = use_shadeless
         mat.use_transparency = use_transparency
@@ -229,10 +255,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         plane.layers = layers
         plane['import_id'] = import_id
         # Add UV's and add image to UV's
-        img_path = os.path.join(img_dir, ''.join((layer, '.png')))
-        img = bpy.data.images.load(img_path)
-        if rel_path:
-            img.filepath = bpy.path.relpath(img.filepath)
+        img = create_image()
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
         # Create and assign material
