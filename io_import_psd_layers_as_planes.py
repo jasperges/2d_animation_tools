@@ -188,7 +188,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             if layer_info[child]['layer_type'] == 'layer':
                 children_count += 1
                 child_locations.append(Vector(get_transforms(layer_info[child])[0]))
-        return sum_vectors(child_locations) / children_count
+        if children_count:
+            return sum_vectors(child_locations) / children_count
+        else:
+            return Vector()
 
     def create_texture(name, img):
         tex = bpy.data.textures.new(name, 'IMAGE')
