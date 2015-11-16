@@ -21,7 +21,6 @@
 
 import os
 import time
-import math
 import random
 import string
 from collections import defaultdict, OrderedDict
@@ -58,24 +57,20 @@ def parse_psd(self, psd_file):
     hidden_layers = self.hidden_layers
 
     def parse_layer(layer, parent='', children=defaultdict(list), layer_list=OrderedDict()):
-        if not isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
+        if isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
+            parent = psd_name
+        else:
             if ((not hidden_layers and not layer.visible_global) or
                     (not hasattr(layer, 'layers') or not layer.layers)):
                 parents.pop()
                 return
-            layer_name = bpy.path.clean_name(layer.name)
-            random.seed(''.join((psd_file, ''.join(parents), layer_name)))
-            layer_id = generate_random_id()
-            parent = '{name}_{id}'.format(name=layer_name, id=layer_id)
-        else:
-            parent = psd_name
-        for sub_layer in layer.layers:
+        for i, sub_layer in enumerate(layer.layers):
             if not hidden_layers and not sub_layer.visible_global:
                 continue
             sub_layer_name = bpy.path.clean_name(sub_layer.name)
             if not parent in parents:
                 parents.append(parent)
-            random.seed(''.join((psd_file, ''.join(parents), sub_layer_name)))
+            random.seed(''.join((psd_file, ''.join(parents), sub_layer_name, str(i))))
             sub_layer_id = generate_random_id()
             name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer_id)
             if isinstance(sub_layer, psd_tools.Layer):
@@ -93,12 +88,14 @@ def parse_psd(self, psd_file):
                     'x': x,
                     'y': y,
                     'layer_type': 'layer',
+                    'layer_id': sub_layer_id,
                     'parents': parents.copy()
                     }
             else:
                 # This is a layer group
                 layer_list[name] = {
                     'layer_type': 'group',
+                    'layer_id': sub_layer_id,
                     'parents': parents.copy()
                     }
             children[parent].append(name)
@@ -295,7 +292,6 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             root_group.objects.link(root_empty)
         except NameError:
             pass
-
     for layer, info in layer_info.items():
         msg = '  - processing: {layer}'.format(layer=layer)
         spaces = (80 - len(msg)) * ' '
