@@ -179,9 +179,12 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         return vector_sum
 
     def get_children_median(obj):
+        children = obj.get('children')
+        if not children:
+            return Vector()
         child_locations = []
         children_count = 0
-        for child in obj['children']:
+        for child in children:
             if layer_info[child]['layer_type'] == 'layer':
                 children_count += 1
                 child_locations.append(Vector(get_transforms(layer_info[child])[0]))
