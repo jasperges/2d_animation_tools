@@ -294,6 +294,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
                                     to_up=axis_up).to_4x4()
 
     root_name = os.path.splitext(psd_name)[0]
+
     if group_group:
         root_group = bpy.data.groups.new(root_name)
     if group_empty:
@@ -340,18 +341,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         root_empty.location = bpy.context.scene.cursor_location
 
 
-def get_current_layer():
-    '''
-    Return the first layer that is active.
-    '''
-
-    for i, l in enumerate(bpy.context.scene.layers):
-        if l:
-            return i
-
 IOPSDOrientationHelper = orientation_helper_factory("IOPSDOrientationHelper",
                                                     axis_forward='-Y',
                                                     axis_up='Z')
+
 
 # Actual import operator.
 class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper):
@@ -399,7 +392,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         default=True)
     group_layers = BoolProperty(
         name='Layers',
-        description='Put the images on separate layers per PSD',
+        description='Put the images on separate layers per PSD (starting from the active layer)',
         default=False)
     rel_path = BoolProperty(
         name='Relative Path',
@@ -444,18 +437,27 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
 
         start_time = time.time()
         print()
+
         d = self.properties.directory
         fils = self.properties.files
         layer_list = 20 * [False]
-        cur_layer = get_current_layer()
+        cur_layer = context.scene.active_layer
         random.seed()
         import_id = generate_random_id()
+
+        if self.group_layers:
+            # Make all layers visible to make sure the scene is
+            # properly updated during import
+            visible_layers = context.scene.layers[:]
+            context.scene.layers = 20 * [True]
 
         for i, f in enumerate(fils):
             layers = layer_list[:]
             if self.group_layers:
                 layernum = (cur_layer + i) % 20
-                layers[layernum] = True
+            else:
+                layernum = context.scene.active_layer
+            layers[layernum] = True
             psd_file = os.path.join(d, f.name)
             try:
                 layer_info, image_size, png_dir = parse_psd(self, psd_file)
@@ -468,6 +470,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             create_objects(self, layer_info, image_size,
                            png_dir, f.name, layers, import_id)
             print(''.join(('  Done', 74 * ' ')))
+
+        if self.group_layers:
+            # Restore original layer visibility
+            context.scene.layers = visible_layers
+
         if len(fils) > 1:
             print_f = 'Files'
         else:
