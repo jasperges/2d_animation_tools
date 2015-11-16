@@ -30,6 +30,7 @@ from mathutils import Vector
 from bpy.props import (BoolProperty,
                        StringProperty,
                        FloatProperty,
+                       EnumProperty,
                        CollectionProperty)
 from bpy_extras.io_utils import (ImportHelper,
                                  orientation_helper_factory,
@@ -213,7 +214,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             img.filepath = bpy.path.relpath(img.filepath)
         return img
 
-    def create_texture(name, img, import_id):
+    def create_bi_texture(name, img, import_id):
         # Check if texture already exists
         for t in bpy.data.textures:
             if name in t.name and t.type == 'IMAGE' and t.image == img:
@@ -225,7 +226,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         tex['2d_animation_tools'] = {'import_id': import_id}
         return tex
 
-    def create_material(name, tex, import_id):
+    def create_bi_material(name, tex, import_id):
         # Check if material already exists
         for m in bpy.data.materials:
             if name in m.name and m.texture_slots:
@@ -235,15 +236,88 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
                             return m
         # Material not found, create a new one
         mat = bpy.data.materials.new(name)
+        mat['2d_animation_tools'] = {'import_id': import_id}
         mat.use_shadeless = use_shadeless
         mat.use_transparency = use_transparency
-        if use_transparency:
-            mat.alpha = 0.0
         mat.texture_slots.create(0)
         mat.texture_slots[0].texture = tex
         if use_transparency:
+            mat.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
+            mat.alpha = 0.0
             mat.texture_slots[0].use_map_alpha = True
+        return mat
+
+    def create_cycles_material(name, img, import_id):
+        # Check if material already exists
+        for m in bpy.data.materials:
+            if name in m.name and m.use_nodes:
+                for node in m.node_tree.nodes:
+                    if node.type == 'TEX_IMAGE' and node.image == img:
+                        return m
+        mat = bpy.data.materials.new(name)
         mat['2d_animation_tools'] = {'import_id': import_id}
+        mat.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
+        mat.use_nodes = True
+        node_tree = mat.node_tree
+        nodes = node_tree.nodes
+        # Remove default Diffuse
+        nodes.remove(nodes['Diffuse BSDF'])
+        # Create nodes
+        img_tex = nodes.new('ShaderNodeTexImage')
+        light_path = nodes.new('ShaderNodeLightPath')
+        math_max1 = nodes.new('ShaderNodeMath')
+        math_max2 = nodes.new('ShaderNodeMath')
+        emission = nodes.new('ShaderNodeEmission')
+        transparent = nodes.new('ShaderNodeBsdfTransparent')
+        mix = nodes.new('ShaderNodeMixShader')
+        mat_output = nodes['Material Output']
+        # Set options
+        img_tex.image = img
+        img_tex.interpolation = interpolation
+        math_max1.operation = 'MAXIMUM'
+        math_max2.operation = 'MAXIMUM'
+        # Connect nodes
+        node_tree.links.new(math_max1.inputs[0], light_path.outputs[0])
+        node_tree.links.new(math_max1.inputs[1], light_path.outputs[3])
+        node_tree.links.new(math_max2.inputs[0], math_max1.outputs[0])
+        node_tree.links.new(math_max2.inputs[1], light_path.outputs[6])
+        node_tree.links.new(emission.inputs[0], img_tex.outputs[0])
+        node_tree.links.new(emission.inputs[1], math_max2.outputs[0])
+        node_tree.links.new(mix.inputs[0], img_tex.outputs[1])
+        node_tree.links.new(mix.inputs[1], transparent.outputs[0])
+        node_tree.links.new(mix.inputs[2], emission.outputs[0])
+        node_tree.links.new(mat_output.inputs[0], mix.outputs[0])
+        # Hide unused sockets of Light Path node
+        for output in light_path.outputs:
+            if not output.links:
+                output.hide = True
+        # Collapse nodes
+        img_tex.width_hidden = 100
+        light_path.width_hidden = 100
+        math_max1.width_hidden = 100
+        math_max2.width_hidden = 100
+        emission.width_hidden = 100
+        transparent.width_hidden = 100
+        mix.width_hidden = 100
+        mat_output.width_hidden = 100
+        img_tex.hide = True
+        light_path.hide = True
+        math_max1.hide = True
+        math_max2.hide = True
+        emission.hide = True
+        transparent.hide = True
+        mix.hide = True
+        mat_output.hide = True
+        # Position nodes nicely
+        img_tex.location = (-420, 200)
+        light_path.location = (-840, -40)
+        math_max1.location = (-630, 0)
+        math_max2.location = (-420, -40)
+        emission.location = (-210, -40)
+        transparent.location = (-210, 40)
+        mix.location = (0, 0)
+        mat_output.location = (210, 0)
+
         return mat
 
     def create_textured_plane(name, transforms, global_matrix, import_id, layer_id, img_path):
@@ -269,8 +343,11 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
         # Create and assign material
-        tex = create_texture(name, img, import_id)
-        mat = create_material(name, tex, import_id)
+        if bpy.context.scene.render.engine == 'CYCLES':
+            mat = create_cycles_material(name, img, import_id)
+        else:   # Blender Internal, Game or unsupported engine
+            tex = create_bi_texture(name, img, import_id)
+            mat = create_bi_material(name, tex, import_id)
         plane.data.materials.append(mat)
         return plane
 
@@ -284,6 +361,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     use_mipmap = self.use_mipmap
     use_shadeless = True
     use_transparency = True
+    interpolation = self.texture_interpolation
 
     image_width = image_size[0]
     image_height = image_size[1]
@@ -382,6 +460,14 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='MIP Map',
         description='Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images',
         default=False)
+    texture_interpolation = EnumProperty(
+        name='Interpolation',
+        description='Texture Interpolation',
+        items=(('Linear', 'Linear', 'Linear interpolation'),
+               ('Closest', 'Closest', 'No interpolation (Sample closest texel)'),
+               ('Cubic', 'Cubic', 'Cubic interpolation (CPU only)'),
+               ('Smart', 'Smart', 'Bicubic when magnifying, else bilinear (OSL only')),
+        default='Linear')
     group_group = BoolProperty(
         name='Group',
         description='Put the images in groups',
@@ -423,11 +509,19 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         box = layout.box()
         box.label('Material options', icon='MATERIAL_DATA')
         col = box.column()
-        if self.use_mipmap:
-            mipmap_icon = 'ANTIALIASED'
+        if context.scene.render.engine == 'CYCLES':
+            col.prop(self, 'texture_interpolation')
         else:
-            mipmap_icon = 'ALIASED'
-        col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
+            if not context.scene.render.engine in ['BLENDER_RENDER', 'BLENDER_GAME']:
+                subbox = col.box()
+                subbox.label(text='Unrecognized Render Engine', icon='ERROR')
+                subbox.label(text='Assuming Blender Internal')
+                col.separator()
+            if self.use_mipmap:
+                mipmap_icon = 'ANTIALIASED'
+            else:
+                mipmap_icon = 'ALIASED'
+            col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
 
     def execute(self, context):
         editmode = context.user_preferences.edit.use_enter_edit_mode
