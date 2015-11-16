@@ -106,7 +106,7 @@ def parse_psd(self, psd_file):
                 p['children'] = children[parent]
         return layer_list
 
-    print('\nparsing: {}'.format(psd_file))
+    print('parsing: {}'.format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
     psd_name = os.path.splitext(psd_name)[0]
     png_dir = os.path.join(psd_dir, '_'.join((psd_name, 'pngs')))
@@ -142,9 +142,16 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         string import_id  - used to identify this import
     '''
 
-    def get_parent(parent_name, import_id):
+    def get_parent(parent, import_id):
+        if parent in root_empty.name:
+            return root_empty
+        parent_split = parent.split('_')
+        parent_name = '_'.join(parent_split[:-1])
+        parent_id = parent_split[-1]
         for obj in bpy.context.scene.objects:
-            if parent_name in obj.name and obj['import_id'] == import_id:
+            if (parent_name in obj.name and
+                    obj['2d_animation_tools']['import_id'] == import_id and
+                    obj['2d_animation_tools']['layer_id'] == parent_id):
                 return obj
 
     def group_object(obj, parent, root_group, group_empty, group_group, import_id):
@@ -206,7 +213,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             img.filepath = bpy.path.relpath(img.filepath)
         return img
 
-    def create_texture(name, img):
+    def create_texture(name, img, import_id):
         # Check if texture already exists
         for t in bpy.data.textures:
             if name in t.name and t.type == 'IMAGE' and t.image == img:
@@ -215,9 +222,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         tex = bpy.data.textures.new(name, 'IMAGE')
         tex.use_mipmap = use_mipmap
         tex.image = img
+        tex['2d_animation_tools'] = {'import_id': import_id}
         return tex
 
-    def create_material(name, tex):
+    def create_material(name, tex, import_id):
         # Check if material already exists
         for m in bpy.data.materials:
             if name in m.name and m.texture_slots:
@@ -235,9 +243,10 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         mat.texture_slots[0].texture = tex
         if use_transparency:
             mat.texture_slots[0].use_map_alpha = True
+        mat['2d_animation_tools'] = {'import_id': import_id}
         return mat
 
-    def create_textured_plane(name, transforms, global_matrix, import_id, img_path):
+    def create_textured_plane(name, transforms, global_matrix, import_id, layer_id, img_path):
         # Create plane with 'forward: -y' and 'up: z'
         # Then use axis conversion to change to orientation specified by user
         loc, scale = transforms
@@ -253,14 +262,15 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         bpy.context.scene.objects.link(plane)
         plane.location = global_matrix * loc
         plane.layers = layers
-        plane['import_id'] = import_id
+        animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
+        plane['2d_animation_tools'] = animation_tools_prop
         # Add UV's and add image to UV's
         img = create_image()
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
         # Create and assign material
-        tex = create_texture(name, img)
-        mat = create_material(name, tex)
+        tex = create_texture(name, img, import_id)
+        mat = create_material(name, tex, import_id)
         plane.data.materials.append(mat)
         return plane
 
@@ -290,7 +300,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         root_empty = bpy.data.objects.new(root_name, None)
         bpy.context.scene.objects.link(root_empty)
         root_empty.layers = layers
-        root_empty['import_id'] = import_id
+        root_empty['2d_animation_tools'] = {'import_id': import_id, 'layer_id': 'root'}
         try:
             root_group.objects.link(root_empty)
         except NameError:
@@ -302,15 +312,15 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         print(msg, end='\r')
         name = layer
         parent = info['parents'][-1]
-        if parent != root_name:
-            parent = '_'.join(parent.split('_')[:-1])
+        layer_id = info['layer_id']
         if info['layer_type'] == 'group' and group_empty:
             if name != root_name:
                 name = '_'.join(name.split('_')[:-1])
             empty = bpy.data.objects.new(name, None)
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
-            empty['import_id'] = import_id
+            animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
+            empty['2d_animation_tools'] = animation_tools_prop
             # Position empty at median of children
             median = get_children_median(info)
             empty.location = global_matrix * median
@@ -319,7 +329,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             transforms = get_transforms(info)
             img_path = os.path.join(img_dir, ''.join((layer, '.png')))
             name = '_'.join(name.split('_')[:-1])
-            plane = create_textured_plane(name, transforms, global_matrix, import_id, img_path)
+            plane = create_textured_plane(name, transforms, global_matrix, import_id, layer_id, img_path)
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
 
     if group_empty:
@@ -458,8 +468,12 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             create_objects(self, layer_info, image_size,
                            png_dir, f.name, layers, import_id)
             print(''.join(('  Done', 74 * ' ')))
-        print('\nFiles imported in {s:.2f} seconds'.format(
-            s=time.time() - start_time))
+        if len(fils) > 1:
+            print_f = 'Files'
+        else:
+            print_f = 'File'
+        print('\n{print_f} imported in {s:.2f} seconds'.format(
+            print_f=print_f, s=time.time() - start_time))
 
         context.user_preferences.edit.use_enter_edit_mode = editmode
 
