@@ -17,8 +17,6 @@
 # ##### END GPL LICENSE BLOCK #####
 
 
-# icons: "IMAGE_DATA", "MATERIAL_DATA", "ARROW_LEFTRIGHT", "FILTER"
-
 import os
 import time
 import random
@@ -452,10 +450,26 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Import hidden layers',
         description='Also import hidden layers',
         default=False)
+    size_mode = EnumProperty(
+        name='Size Mode',
+        description='How the size of the planes is computed',
+        items=(('RELATIVE', 'Relative', 'Use relative size'),
+               ('ABSOLUTE', 'Absolute', 'Use absolute size')),
+        default='RELATIVE')
     scale_fac = FloatProperty(
         name='Scale',
-        description='Scale of the planes (how many pixels make up 1 Blender unit)',
+        description='Number of pixels per Blender unit',
         default=100)
+    size_mode_absolute = EnumProperty(
+        name='Absolute Size Mode',
+        description='Use the width or the height for the absolute size',
+        items=(('WIDTH', 'Width', 'Define the width of the image'),
+               ('HEIGHT', 'Height', 'Define the height of the image')),
+        default='WIDTH')
+    absolute_size = FloatProperty(
+        name='Size',
+        description='The width or height of the image in Blender units',
+        default=2)
     use_mipmap = BoolProperty(
         name='MIP Map',
         description='Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images',
@@ -488,16 +502,24 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
     def draw(self, context):
         layout = self.layout
 
-        # Import options
-        layout.prop(self, 'rel_path')
+        # Transformation options
         box = layout.box()
-        box.label('Import options', icon='FILTER')
+        box.label('Transformation options', icon='MANIPUL')
         col = box.column()
-        col.prop(self, 'hidden_layers', icon='GHOST_ENABLED')
+        sub_col = col.column(align=True)
+        row = sub_col.row(align=True)
+        row.prop(self, 'size_mode', expand=True)
+        if self.size_mode == 'ABSOLUTE':
+            row = sub_col.row(align=True)
+            row.prop(self, 'size_mode_absolute', expand=True)
+            sub_col.prop(self, 'absolute_size')
+        else:
+            sub_col.prop(self, 'scale_fac')
+        col.separator()
         col.prop(self, 'axis_forward')
         col.prop(self, 'axis_up')
+        col.separator()
         col.prop(self, 'offset')
-        col.prop(self, 'scale_fac')
         # Grouping options
         box = layout.box()
         box.label('Grouping', icon='GROUP')
@@ -522,6 +544,12 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             else:
                 mipmap_icon = 'ALIASED'
             col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
+        # Import options
+        box = layout.box()
+        box.label('Import options', icon='FILTER')
+        col = box.column()
+        col.prop(self, 'rel_path')
+        col.prop(self, 'hidden_layers', icon='GHOST_ENABLED')
 
     def execute(self, context):
         editmode = context.user_preferences.edit.use_enter_edit_mode
