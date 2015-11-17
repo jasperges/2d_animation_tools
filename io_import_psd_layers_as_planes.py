@@ -168,11 +168,18 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
                 pass
 
     def get_transforms(layer):
-        loc_x = (-image_width / 2 + layer['width'] / 2 + layer['x']) / scale_fac
-        loc_y = offset * layer['offset']
-        loc_z = (image_height - layer['height'] / 2 - layer['y']) / scale_fac
-        scale_x = layer['width'] / scale_fac / 2
-        scale_y = layer['height'] / scale_fac / 2
+        if self.size_mode == 'RELATIVE':
+            scaling = self.scale_fac
+        if self.size_mode == 'ABSOLUTE':
+            if self.size_mode_absolute == 'WIDTH':
+                scaling = image_width / self.absolute_size
+            else:
+                scaling = image_height / self.absolute_size
+        loc_x = (-image_width / 2 + layer['width'] / 2 + layer['x']) / scaling
+        loc_y = self.offset * layer['offset']
+        loc_z = (image_height - layer['height'] / 2 - layer['y']) / scaling
+        scale_x = layer['width'] / scaling / 2
+        scale_y = layer['height'] / scaling / 2
         scale_z = 1
         location = Vector((loc_x, loc_y, loc_z))
         scale = Vector((scale_x, scale_y, scale_z))
@@ -354,11 +361,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     group_group = self.group_group
     axis_forward = self.axis_forward
     axis_up = self.axis_up
-    offset = self.offset
-    scale_fac = self.scale_fac
-    use_mipmap = self.use_mipmap
-    use_shadeless = True
-    use_transparency = True
+    
     interpolation = self.texture_interpolation
 
     image_width = image_size[0]
