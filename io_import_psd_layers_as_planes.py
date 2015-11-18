@@ -23,7 +23,6 @@ import os
 import time
 import random
 import string
-from collections import defaultdict, OrderedDict
 import psd_tools
 import bpy
 from mathutils import Vector
@@ -46,66 +45,37 @@ def generate_random_id(length=8):
 
 def parse_psd(self, psd_file):
     '''
-    parse_psd(string psd_file) -> dict layer_info
+    parse_psd(string psd_file) -> list layers, tuple image_size, string png_dir
 
         Reads psd_file and exports all layers to png's.
-        Returns a dictionary with the positions and order of the layers and
-        the size of the image.
+        Returns a list of all the layer objects, the image size and
+        the png export directory.
 
         string psd_file - the filepath of the psd file
     '''
 
-    hidden_layers = self.hidden_layers
+    def get_layers(layer, all_layers=[]):
+        layers = getattr(layer, 'layers', None)
+        if not layers:
+            return
+        for sub_layer in layer.layers:
+            all_layers.append(sub_layer)
+            get_layers(sub_layer, all_layers=all_layers)
+        return all_layers
 
-    def parse_layer(layer, parent='', children=defaultdict(list), layer_list=OrderedDict()):
-        if isinstance(layer, psd_tools.user_api.psd_image.PSDImage):
-            parent = psd_name
-        else:
-            if ((not hidden_layers and not layer.visible_global) or
-                    (not hasattr(layer, 'layers') or not layer.layers)):
-                parents.pop()
-                return
-        for i, sub_layer in enumerate(layer.layers):
-            if not hidden_layers and not sub_layer.visible_global:
+    def export_layers_as_png(layers, png_dir):
+        for layer in layers:
+            if (isinstance(layer, psd_tools.user_api.psd_image.Group) or
+                    (not layer.visible_global and self.hidden_layers)):
                 continue
-            sub_layer_name = bpy.path.clean_name(sub_layer.name)
-            if not parent in parents:
-                parents.append(parent)
-            random.seed(''.join((psd_file, ''.join(parents), sub_layer_name, str(i))))
-            sub_layer_id = generate_random_id()
-            name = '{name}_{id}'.format(name=sub_layer_name, id=sub_layer_id)
-            if isinstance(sub_layer, psd_tools.Layer):
-                # This is a normal layer we sould export it as a png
-                png_file = os.path.join(png_dir, ''.join((name, '.png')))
-                layer_image = sub_layer.as_PIL()
-                layer_image.save(png_file)
-                width = sub_layer.bbox.width
-                height = sub_layer.bbox.height
-                x = sub_layer.bbox.x1
-                y = sub_layer.bbox.y1
-                layer_list[name] = {
-                    'width': width,
-                    'height': height,
-                    'x': x,
-                    'y': y,
-                    'layer_type': 'layer',
-                    'layer_id': sub_layer_id,
-                    'parents': parents.copy()
-                    }
-            else:
-                # This is a layer group
-                layer_list[name] = {
-                    'layer_type': 'group',
-                    'layer_id': sub_layer_id,
-                    'parents': parents.copy()
-                    }
-            children[parent].append(name)
-            parse_layer(sub_layer, parent=name, children=children, layer_list=layer_list)
-        for parent in children:
-            p = layer_list.get(parent)
-            if p:
-                p['children'] = children[parent]
-        return layer_list
+            msg = '  - exporting: {layer}'.format(layer=layer.name)
+            spaces = (80 - len(msg)) * ' '
+            msg = ''.join((msg, spaces))
+            print(msg, end='\r')
+            name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
+            png_file = os.path.join(png_dir, ''.join((name, '.png')))
+            layer_image = layer.as_PIL()
+            layer_image.save(png_file)
 
     print('parsing: {}'.format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
@@ -114,28 +84,24 @@ def parse_psd(self, psd_file):
     if not os.path.isdir(png_dir):
         os.mkdir(png_dir)
     psd = psd_tools.PSDImage.load(psd_file)
-    parents = []
-    layer_info = parse_layer(psd)
-    i = 0
-    for info in layer_info.values():
-        if info['layer_type'] == 'layer':
-            info['offset'] = i
-            i += 1
+    # layer_info = psd_tools.user_api.layers.group_layers(psd.decoded_data)
+    layers = get_layers(psd)
     image_size = (psd.bbox.width, psd.bbox.height)
+    export_layers_as_png(layers, png_dir)
 
-    return (layer_info, image_size, png_dir)
+    return (layers, image_size, png_dir)
 
 
-def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, import_id):
+def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, import_id):
     '''
-    create_objects(class self, list layer_info, tuple image_size,
+    create_objects(class self, list psd_layers, tuple image_size,
                   string img_dir, string psd_name, list layers, string import_id)
 
-        Imports all png images that are in layer_info from img_dir
+        Imports all png images that are in psd_layers from img_dir
         into Blender as planes and places these planes correctly.
 
         class self        - the import operator class
-        list layer_info   - info about the layer like position and index
+        list psd_layers   - info about the layer like position and index
         tuple image_size  - the witdth and height of the image
         string img_dir    - the path to the png images
         string psd_name   - the name of the psd file
@@ -144,13 +110,12 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
     '''
 
     def get_parent(parent, import_id):
-        if parent in root_empty.name:
+        if parent.name == '_RootGroup':
             return root_empty
-        parent_split = parent.split('_')
-        parent_name = '_'.join(parent_split[:-1])
-        parent_id = parent_split[-1]
+        parent_name = bpy.path.clean_name(parent.name)
+        parent_id = str(parent._index)
         for obj in bpy.context.scene.objects:
-            if (parent_name in obj.name and
+            if (parent_name in obj.name and obj.type == 'EMPTY' and
                     obj['2d_animation_tools']['import_id'] == import_id and
                     obj['2d_animation_tools']['layer_id'] == parent_id):
                 return obj
@@ -169,12 +134,16 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             except RuntimeError:
                 pass
 
-    def get_transforms(layer):
-        loc_x = (-image_width / 2 + layer['width'] / 2 + layer['x']) / scale_fac
-        loc_y = offset * layer['offset']
-        loc_z = (image_height - layer['height'] / 2 - layer['y']) / scale_fac
-        scale_x = layer['width'] / scale_fac / 2
-        scale_y = layer['height'] / scale_fac / 2
+    def get_transforms(layer, i_offset):
+        x = layer.bbox.x1
+        y = layer.bbox.y1
+        width = layer.bbox.x2 - x
+        height = layer.bbox.y2 - y
+        loc_x = (-image_width / 2 + width / 2 + x) / scale_fac
+        loc_y = offset * i_offset
+        loc_z = (image_height - height / 2 - y) / scale_fac
+        scale_x = width / scale_fac / 2
+        scale_y = height / scale_fac / 2
         scale_z = 1
         location = Vector((loc_x, loc_y, loc_z))
         scale = Vector((scale_x, scale_y, scale_z))
@@ -187,25 +156,27 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         return vector_sum
 
     def get_children_median(obj):
-        children = obj.get('children')
+        children = [c for c in obj.children if c.type == 'MESH']
         if not children:
             return Vector()
-        child_locations = []
-        children_count = 0
-        for child in children:
-            if layer_info[child]['layer_type'] == 'layer':
-                children_count += 1
-                child_locations.append(Vector(get_transforms(layer_info[child])[0]))
-        if children_count:
-            return sum_vectors(child_locations) / children_count
-        else:
-            return Vector()
+        child_locations = [c.matrix_world.to_translation() for c in children]
+        median = sum_vectors(child_locations) / len(children)
+        return median
 
-    def create_image():
-        img_path = os.path.join(img_dir, ''.join((layer, '.png')))
+    def move_to_children_median(obj):
+        median = get_children_median(obj)
+        obj.location = median
+        bpy.context.scene.update()
+        matrix_parent_inverse = obj.matrix_world.inverted()
+        # for c in [c for c in obj.children if c.type == 'MESH']:
+        for c in obj.children:
+            c.matrix_parent_inverse = matrix_parent_inverse
+
+    def create_image(img_path):
+        img_name = os.path.basename(img_path)
         # Check if image already exists
         for i in bpy.data.images:
-            if layer in i.name and (i.filepath == img_path or i.filepath == bpy.path.relpath(img_path)):
+            if img_name in i.name and (i.filepath == img_path or i.filepath == bpy.path.relpath(img_path)):
                 i.reload()
                 return i
         # Image not found, create a new one
@@ -339,7 +310,7 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
         animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
         plane['2d_animation_tools'] = animation_tools_prop
         # Add UV's and add image to UV's
-        img = create_image()
+        img = create_image(img_path)
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
         # Create and assign material
@@ -384,34 +355,41 @@ def create_objects(self, layer_info, image_size, img_dir, psd_name, layers, impo
             root_group.objects.link(root_empty)
         except NameError:
             pass
-    for layer, info in layer_info.items():
-        msg = '  - processing: {layer}'.format(layer=layer)
+    i_offset = 0
+    groups = []
+    for layer in psd_layers:
+        msg = '  - creating object: {layer}'.format(layer=layer.name)
         spaces = (80 - len(msg)) * ' '
         msg = ''.join((msg, spaces))
         print(msg, end='\r')
-        name = layer
-        parent = info['parents'][-1]
-        layer_id = info['layer_id']
-        if info['layer_type'] == 'group' and group_empty:
-            if name != root_name:
-                name = '_'.join(name.split('_')[:-1])
+
+        name = bpy.path.clean_name(layer.name)
+        layer_id = str(layer._index)
+        parent = layer.parent
+
+        if isinstance(layer, psd_tools.user_api.psd_image.Group) and group_empty:
             empty = bpy.data.objects.new(name, None)
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
             animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
             empty['2d_animation_tools'] = animation_tools_prop
             # Position empty at median of children
-            median = get_children_median(info)
-            empty.location = global_matrix * median
+            # median = get_children_median(info)
+            # empty.location = global_matrix * median
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
+            groups.append(empty)
         else:
-            transforms = get_transforms(info)
-            img_path = os.path.join(img_dir, ''.join((layer, '.png')))
-            name = '_'.join(name.split('_')[:-1])
+            transforms = get_transforms(layer, i_offset)
+            filename = '_'.join((name, str(layer._index)))
+            img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix, import_id, layer_id, img_path)
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
+            i_offset += 1
 
     if group_empty:
+        groups.reverse()
+        for group in groups:
+            move_to_children_median(group)
         bpy.ops.object.select_all(action='DESELECT')
         root_empty.select = True
         bpy.context.scene.objects.active = root_empty
@@ -524,8 +502,6 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
 
     def execute(self, context):
-        editmode = context.user_preferences.edit.use_enter_edit_mode
-        context.user_preferences.edit.use_enter_edit_mode = False
         if context.active_object and context.active_object.mode == 'EDIT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -553,15 +529,15 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
                 layernum = context.scene.active_layer
             layers[layernum] = True
             psd_file = os.path.join(d, f.name)
-            try:
-                layer_info, image_size, png_dir = parse_psd(self, psd_file)
-            except TypeError:   # None is returned, so something went wrong.
-                msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
-                self.report({'ERROR'}, msg)
-                print("*** {}".format(msg))
-                continue
-            # layer_info, image_size, png_dir = parse_psd(self, psd_file)
-            create_objects(self, layer_info, image_size,
+            # try:
+            #     layers, image_size, png_dir = parse_psd(self, psd_file)
+            # except TypeError:   # None is returned, so something went wrong.
+            #     msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
+            #     self.report({'ERROR'}, msg)
+            #     print("*** {}".format(msg))
+            #     continue
+            psd_layers, image_size, png_dir = parse_psd(self, psd_file)
+            create_objects(self, psd_layers, image_size,
                            png_dir, f.name, layers, import_id)
             print(''.join(('  Done', 74 * ' ')))
 
@@ -575,7 +551,5 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             print_f = 'File'
         print('\n{print_f} imported in {s:.2f} seconds'.format(
             print_f=print_f, s=time.time() - start_time))
-
-        context.user_preferences.edit.use_enter_edit_mode = editmode
 
         return {'FINISHED'}
