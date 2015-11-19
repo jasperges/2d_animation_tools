@@ -41,6 +41,17 @@ def generate_random_id(length=8):
     return ''.join(random.choice(chars) for _ in range(length))
 
 
+def print_progress(progress, min=0, max=100, barlen=50, prefix='', suffix='', line_width=80):
+    total_len = max - min
+    progress_float = (progress - min) / total_len
+    bar_progress = int(progress_float * barlen) * '='
+    bar_empty = (barlen - len(bar_progress)) * ' '
+    percentage = ''.join((str(int(progress_float * 100)), '%'))
+    progress_string = ''.join((prefix, '[', bar_progress, bar_empty, ']', ' ', percentage, suffix))[:line_width]
+    print_string = ''.join((progress_string, ' ' * (line_width - len(progress_string))))
+    print(print_string, end='\r')
+
+
 def parse_psd(self, psd_file):
     '''
     parse_psd(string psd_file) -> list layers, tuple image_size, string png_dir
@@ -62,14 +73,13 @@ def parse_psd(self, psd_file):
         return all_layers
 
     def export_layers_as_png(layers, png_dir):
-        for layer in layers:
+        for i, layer in enumerate(layers):
             if (isinstance(layer, psd_tools.user_api.psd_image.Group) or
                     (not layer.visible_global and self.hidden_layers)):
                 continue
-            msg = '  - exporting: {layer}'.format(layer=layer.name)
-            spaces = (80 - len(msg)) * ' '
-            msg = ''.join((msg, spaces))
-            print(msg, end='\r')
+            prefix = '  - exporting: '
+            suffix = ' - {}'.format(layer.name)
+            print_progress(i, max=(len(layers) - 1), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
             name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
             layer_image = layer.as_PIL()
@@ -82,7 +92,6 @@ def parse_psd(self, psd_file):
     if not os.path.isdir(png_dir):
         os.mkdir(png_dir)
     psd = psd_tools.PSDImage.load(psd_file)
-    # layer_info = psd_tools.user_api.layers.group_layers(psd.decoded_data)
     layers = get_layers(psd)
     image_size = (psd.bbox.width, psd.bbox.height)
     export_layers_as_png(layers, png_dir)
@@ -145,7 +154,7 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             else:
                 scaling = image_height / self.absolute_size
         loc_x = (-image_width / 2 + width / 2 + x) / scaling
-        loc_y = offset * i_offset
+        loc_y = self.offset * i_offset
         loc_z = (image_height - height / 2 - y) / scaling
         scale_x = width / scaling / 2
         scale_y = height / scaling / 2
@@ -197,12 +206,15 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
                 return t
         # Texture not found, create a new one
         tex = bpy.data.textures.new(name, 'IMAGE')
-        tex.use_mipmap = use_mipmap
+        tex.use_mipmap = self.use_mipmap
         tex.image = img
         tex['2d_animation_tools'] = {'import_id': import_id}
         return tex
 
     def create_bi_material(name, tex, import_id):
+        # Maybe add these to material settings later
+        use_shadeless = True
+        use_transparency = True
         # Check if material already exists
         for m in bpy.data.materials:
             if name in m.name and m.texture_slots:
@@ -224,6 +236,7 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
         return mat
 
     def create_cycles_material(name, img, import_id):
+        interpolation = self.texture_interpolation
         # Check if material already exists
         for m in bpy.data.materials:
             if name in m.name and m.use_nodes:
@@ -332,8 +345,6 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
     group_group = self.group_group
     axis_forward = self.axis_forward
     axis_up = self.axis_up
-    
-    interpolation = self.texture_interpolation
 
     image_width = image_size[0]
     image_height = image_size[1]
@@ -358,11 +369,10 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             pass
     i_offset = 0
     groups = []
-    for layer in psd_layers:
-        msg = '  - creating object: {layer}'.format(layer=layer.name)
-        spaces = (80 - len(msg)) * ' '
-        msg = ''.join((msg, spaces))
-        print(msg, end='\r')
+    for i, layer in enumerate(psd_layers):
+        prefix = '  - creating objects: '
+        suffix = ' - {}'.format(layer.name)
+        print_progress(i, max=(len(psd_layers) - 1), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
 
         name = bpy.path.clean_name(layer.name)
         layer_id = str(layer._index)
@@ -374,9 +384,6 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             empty.layers = layers
             animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
             empty['2d_animation_tools'] = animation_tools_prop
-            # Position empty at median of children
-            # median = get_children_median(info)
-            # empty.location = global_matrix * median
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
             groups.append(empty)
         else:
@@ -388,9 +395,11 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             i_offset += 1
 
     if group_empty:
+        # Position empty at median of children
         groups.reverse()
         for group in groups:
             move_to_children_median(group)
+        # Select root empty and make active object
         bpy.ops.object.select_all(action='DESELECT')
         root_empty.select = True
         bpy.context.scene.objects.active = root_empty
@@ -560,17 +569,17 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
                 layernum = context.scene.active_layer
             layers[layernum] = True
             psd_file = os.path.join(d, f.name)
-            # try:
-            #     layers, image_size, png_dir = parse_psd(self, psd_file)
-            # except TypeError:   # None is returned, so something went wrong.
-            #     msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
-            #     self.report({'ERROR'}, msg)
-            #     print("*** {}".format(msg))
-            #     continue
-            psd_layers, image_size, png_dir = parse_psd(self, psd_file)
+            try:
+                psd_layers, image_size, png_dir = parse_psd(self, psd_file)
+            except TypeError:   # None is returned, so something went wrong.
+                msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
+                self.report({'ERROR'}, msg)
+                print("*** {}".format(msg))
+                continue
+            # psd_layers, image_size, png_dir = parse_psd(self, psd_file)
             create_objects(self, psd_layers, image_size,
                            png_dir, f.name, layers, import_id)
-            print(''.join(('  Done', 74 * ' ')))
+            print(''.join(('  Done', 114 * ' ')))
 
         if self.group_layers:
             # Restore original layer visibility
