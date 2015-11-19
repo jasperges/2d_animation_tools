@@ -120,11 +120,11 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
         if parent.name == '_RootGroup':
             return root_empty
         parent_name = bpy.path.clean_name(parent.name)
-        parent_id = str(parent._index)
+        parent_index = str(parent._index)
         for obj in bpy.context.scene.objects:
             if (parent_name in obj.name and obj.type == 'EMPTY' and
                     obj['2d_animation_tools']['import_id'] == import_id and
-                    obj['2d_animation_tools']['layer_id'] == parent_id):
+                    obj['2d_animation_tools']['layer_index'] == parent_index):
                 return obj
 
     def group_object(obj, parent, root_group, group_empty, group_group, import_id):
@@ -309,7 +309,8 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
 
         return mat
 
-    def create_textured_plane(name, transforms, global_matrix, import_id, layer_id, img_path):
+    def create_textured_plane(name, transforms, global_matrix, import_id, layer_index, psd_layer_name, img_path):
+        layer_index
         # Create plane with 'forward: -y' and 'up: z'
         # Then use axis conversion to change to orientation specified by user
         loc, scale = transforms
@@ -325,7 +326,7 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
         bpy.context.scene.objects.link(plane)
         plane.location = global_matrix * loc
         plane.layers = layers
-        animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
+        animation_tools_prop = {'import_id': import_id, 'layer_index': layer_index, 'psd_layer_name': psd_layer_name}
         plane['2d_animation_tools'] = animation_tools_prop
         # Add UV's and add image to UV's
         img = create_image(img_path)
@@ -362,7 +363,7 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
         root_empty = bpy.data.objects.new(root_name, None)
         bpy.context.scene.objects.link(root_empty)
         root_empty.layers = layers
-        root_empty['2d_animation_tools'] = {'import_id': import_id, 'layer_id': 'root'}
+        root_empty['2d_animation_tools'] = {'import_id': import_id, 'layer_index': 'root'}
         try:
             root_group.objects.link(root_empty)
         except NameError:
@@ -375,14 +376,15 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
         print_progress(i, max=(len(psd_layers) - 1), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
 
         name = bpy.path.clean_name(layer.name)
-        layer_id = str(layer._index)
+        psd_layer_name = layer.name
+        layer_index = str(layer._index)
         parent = layer.parent
 
         if isinstance(layer, psd_tools.user_api.psd_image.Group) and group_empty:
             empty = bpy.data.objects.new(name, None)
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
-            animation_tools_prop = {'import_id': import_id, 'layer_id': layer_id}
+            animation_tools_prop = {'import_id': import_id, 'layer_index': layer_index, 'psd_layer_name': psd_layer_name}
             empty['2d_animation_tools'] = animation_tools_prop
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
             groups.append(empty)
@@ -390,7 +392,8 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             transforms = get_transforms(layer, i_offset)
             filename = '_'.join((name, str(layer._index)))
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
-            plane = create_textured_plane(name, transforms, global_matrix, import_id, layer_id, img_path)
+            plane = create_textured_plane(name, transforms, global_matrix,
+                                          import_id, layer_index, psd_layer_name, img_path)
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
             i_offset += 1
 
