@@ -416,7 +416,9 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             empty = bpy.data.objects.new(name, None)
             bpy.context.scene.objects.link(empty)
             empty.layers = layers
-            animation_tools_prop = {'import_id': import_id, 'layer_index': layer_index, 'psd_layer_name': psd_layer_name}
+            animation_tools_prop = {'import_id': import_id,
+                                    'layer_index': layer_index,
+                                    'psd_layer_name': psd_layer_name}
             empty['2d_animation_tools'] = animation_tools_prop
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
             groups.append(empty)
