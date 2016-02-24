@@ -155,8 +155,8 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         if self.crop_layers:
             x = layer.bbox.x1 + bbox[0]
             y = layer.bbox.y1 + bbox[1]
-            width = layer.bbox.x1 + bbox[2] - (layer.bbox.x1 + bbox[0])
-            height = layer.bbox.y1 + bbox[3] - (layer.bbox.y1 + bbox[1])
+            width = bbox[2] - bbox[0]
+            height = bbox[3] - bbox[1]
         else:
             x = layer.bbox.x1
             y = layer.bbox.y1
@@ -512,7 +512,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Relative Path',
         description='Select the file relative to the blend file',
         default=True)
-
+    
+    @classmethod
+    def poll(self,context):
+        return context.mode == 'OBJECT'
+        
     def draw(self, context):
         layout = self.layout
 
