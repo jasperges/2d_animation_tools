@@ -73,17 +73,27 @@ def parse_psd(self, psd_file):
         return all_layers
 
     def export_layers_as_png(layers, png_dir):
+        bboxes = []
         for i, layer in enumerate(layers):
             if (isinstance(layer, psd_tools.user_api.psd_image.Group) or
                     (not layer.visible_global and self.hidden_layers)):
                 continue
             prefix = '  - exporting: '
             suffix = ' - {}'.format(layer.name)
-            print_progress(i, max=(len(layers) - 1), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
+            print_progress(i+1, max=(len(layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
             name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
             layer_image = layer.as_PIL()
+
+            ## AUTOCROP
+            if self.crop_layers:
+                bbox = layer_image.getbbox()
+                bboxes.append(bbox)
+                layer_image = layer_image.crop(bbox)
+            else:
+                bboxes.append(None)
             layer_image.save(png_file)
+        return bboxes
 
     print('parsing: {}'.format(psd_file))
     psd_dir, psd_name = os.path.split(psd_file)
@@ -94,12 +104,12 @@ def parse_psd(self, psd_file):
     psd = psd_tools.PSDImage.load(psd_file)
     layers = get_layers(psd)
     image_size = (psd.bbox.width, psd.bbox.height)
-    export_layers_as_png(layers, png_dir)
+    bboxes = export_layers_as_png(layers, png_dir)
 
-    return (layers, image_size, png_dir)
+    return (layers, bboxes, image_size, png_dir)
 
 
-def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, import_id):
+def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, layers, import_id):
     '''
     create_objects(class self, list psd_layers, tuple image_size,
                   string img_dir, string psd_name, list layers, string import_id)
@@ -141,11 +151,17 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             except RuntimeError:
                 pass
 
-    def get_transforms(layer, i_offset):
-        x = layer.bbox.x1
-        y = layer.bbox.y1
-        width = layer.bbox.x2 - x
-        height = layer.bbox.y2 - y
+    def get_transforms(layer, bbox, i_offset):
+        if self.crop_layers:
+            x = layer.bbox.x1 + bbox[0]
+            y = layer.bbox.y1 + bbox[1]
+            width = layer.bbox.x1 + bbox[2] - (layer.bbox.x1 + bbox[0])
+            height = layer.bbox.y1 + bbox[3] - (layer.bbox.y1 + bbox[1])
+        else:
+            x = layer.bbox.x1
+            y = layer.bbox.y1
+            width = layer.bbox.x2 - x
+            height = layer.bbox.y2 - y
         if self.size_mode == 'RELATIVE':
             scaling = self.scale_fac
         if self.size_mode == 'ABSOLUTE':
@@ -373,7 +389,7 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
     for i, layer in enumerate(psd_layers):
         prefix = '  - creating objects: '
         suffix = ' - {}'.format(layer.name)
-        print_progress(i, max=(len(psd_layers) - 1), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
+        print_progress(i+1, max=(len(psd_layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
 
         name = bpy.path.clean_name(layer.name)
         psd_layer_name = layer.name
@@ -389,7 +405,8 @@ def create_objects(self, psd_layers, image_size, img_dir, psd_name, layers, impo
             group_object(empty, parent, root_group, group_empty, group_group, import_id)
             groups.append(empty)
         else:
-            transforms = get_transforms(layer, i_offset)
+            bbox = bboxes[i]
+            transforms = get_transforms(layer, bbox, i_offset)
             filename = '_'.join((name, str(layer._index)))
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
@@ -439,6 +456,10 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Offset',
         description='Offset planes by this amount on the Y axis',
         default=0.01)
+    crop_layers = BoolProperty(
+        name='Crop layers',
+        description='Crop each layer according to its transparency',
+        default=True)
     hidden_layers = BoolProperty(
         name='Import hidden layers',
         description='Also import hidden layers',
@@ -513,6 +534,8 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         col.prop(self, 'axis_up')
         col.separator()
         col.prop(self, 'offset')
+        col.separator()
+        col.prop(self, 'crop_layers')
         # Grouping options
         box = layout.box()
         box.label('Grouping', icon='GROUP')
@@ -573,14 +596,14 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             layers[layernum] = True
             psd_file = os.path.join(d, f.name)
             try:
-                psd_layers, image_size, png_dir = parse_psd(self, psd_file)
+                psd_layers, bboxes, image_size, png_dir = parse_psd(self, psd_file)
             except TypeError:   # None is returned, so something went wrong.
                 msg = "Something went wrong. '{f}' is not imported!".format(f=f.name)
                 self.report({'ERROR'}, msg)
                 print("*** {}".format(msg))
                 continue
             # psd_layers, image_size, png_dir = parse_psd(self, psd_file)
-            create_objects(self, psd_layers, image_size,
+            create_objects(self, psd_layers, bboxes, image_size,
                            png_dir, f.name, layers, import_id)
             print(''.join(('  Done', 114 * ' ')))
 
