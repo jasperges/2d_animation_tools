@@ -223,6 +223,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         # Texture not found, create a new one
         tex = bpy.data.textures.new(name, 'IMAGE')
         tex.use_mipmap = self.use_mipmap
+        tex.extension = 'CLIP' if self.clip else 'REPEAT'
         tex.image = img
         tex['2d_animation_tools'] = {'import_id': import_id}
         return tex
@@ -484,6 +485,10 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Size',
         description='The width or height of the image in Blender units',
         default=2)
+    clip = BoolProperty(
+        name='Clip texture',
+        description='Use CLIP as image extension. Avoids fringes on the edges',
+        default=True)
     use_mipmap = BoolProperty(
         name='MIP Map',
         description='Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images',
@@ -539,7 +544,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         col.separator()
         col.prop(self, 'offset')
         col.separator()
-        col.prop(self, 'crop_layers')
+        col.prop(self, 'crop_layers', toggle=True)
         # Grouping options
         box = layout.box()
         box.label('Grouping', icon='GROUP')
@@ -564,6 +569,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             else:
                 mipmap_icon = 'ALIASED'
             col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
+            col.prop(self, 'clip', toggle=True)
         # Import options
         box = layout.box()
         box.label('Import options', icon='FILTER')
