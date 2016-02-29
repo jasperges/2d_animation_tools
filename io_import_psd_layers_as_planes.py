@@ -65,7 +65,7 @@ def parse_psd(self, psd_file):
 
     def get_layers(layer, all_layers=[]):
         layers = getattr(layer, 'layers', None)
-        if not layers:
+        if (not layers) or (hasattr(layer, 'visible') and not layer.visible):
             return
         for sub_layer in layer.layers:
             all_layers.append(sub_layer)
@@ -77,14 +77,19 @@ def parse_psd(self, psd_file):
         for i, layer in enumerate(layers):
             if (isinstance(layer, psd_tools.user_api.psd_image.Group) or
                     (not layer.visible_global and self.hidden_layers)):
+                bboxes.append(None)
                 continue
             prefix = '  - exporting: '
             suffix = ' - {}'.format(layer.name)
             print_progress(i+1, max=(len(layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
             name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
-            layer_image = layer.as_PIL()
-
+            try:
+                layer_image = layer.as_PIL()
+            except ValueError:
+                print("Could not process layer " + layer.name)
+                bboxes.append(None)
+                continue
             ## AUTOCROP
             if self.crop_layers:
                 bbox = layer_image.getbbox()
