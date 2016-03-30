@@ -82,7 +82,10 @@ def parse_psd(self, psd_file):
             prefix = '  - exporting: '
             suffix = ' - {}'.format(layer.name)
             print_progress(i+1, max=(len(layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
-            name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
+            if self.layer_index:
+                name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
+            else:
+                name = bpy.path.clean_name(layer.name)
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
             try:
                 layer_image = layer.as_PIL()
@@ -413,7 +416,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         else:
             bbox = bboxes[i]
             transforms = get_transforms(layer, bbox, i_offset)
-            filename = '_'.join((name, str(layer._index)))
+            if self.layer_index:
+                filename = '_'.join((name, str(layer._index)))
+            else:
+                filename = name
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
                                           import_id, layer_index, psd_layer_name, img_path)
@@ -522,6 +528,10 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Relative Path',
         description='Select the file relative to the blend file',
         default=True)
+    layer_index = BoolProperty(
+        name='Layer Index',
+        description='Add layer index to the png name. If not, possible conflicts may arise',
+        default=True)
     
     @classmethod
     def poll(self,context):
@@ -581,6 +591,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         col = box.column()
         col.prop(self, 'rel_path')
         col.prop(self, 'hidden_layers', icon='GHOST_ENABLED')
+        col.prop(self, 'layer_index')
 
     def execute(self, context):
         if context.active_object and context.active_object.mode == 'EDIT':
