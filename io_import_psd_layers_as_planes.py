@@ -83,7 +83,7 @@ def parse_psd(self, psd_file):
             suffix = ' - {}'.format(layer.name)
             print_progress(i+1, max=(len(layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
             if self.layer_index_name:
-                name = '_'.join((bpy.path.clean_name(layer.name), str(layer._index)))
+                name = '_'.join((bpy.path.clean_name(layer.name).rstrip('_'), str(layer._index)))
             else:
                 name = bpy.path.clean_name(layer.name).rstrip('_')
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
