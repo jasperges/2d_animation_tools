@@ -160,7 +160,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
                 pass
 
     def get_transforms(layer, bbox, i_offset):
-        if self.crop_layers:
+        if self.crop_layers and bbox is not None:
             x = layer.bbox.x1 + bbox[0]
             y = layer.bbox.y1 + bbox[1]
             width = bbox[2] - bbox[0]
