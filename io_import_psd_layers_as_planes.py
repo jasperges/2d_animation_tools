@@ -218,7 +218,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
                 i.reload()
                 return i
         # Image not found, create a new one
-        img = bpy.data.images.load(img_path)
+        try:
+            img = bpy.data.images.load(img_path)
+        except RuntimeError:
+            return None
         if rel_path:
             img.filepath = bpy.path.relpath(img.filepath)
         return img
@@ -335,7 +338,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         return mat
 
     def create_textured_plane(name, transforms, global_matrix, import_id, layer_index, psd_layer_name, img_path):
-        layer_index
+        # Add UV's and add image to UV's
+        img = create_image(img_path)
+        if img is None:
+            return
         # Create plane with 'forward: -y' and 'up: z'
         # Then use axis conversion to change to orientation specified by user
         loc, scale = transforms
@@ -353,8 +359,6 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         plane.layers = layers
         animation_tools_prop = {'import_id': import_id, 'layer_index': layer_index, 'psd_layer_name': psd_layer_name}
         plane['2d_animation_tools'] = animation_tools_prop
-        # Add UV's and add image to UV's
-        img = create_image(img_path)
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
         # Create and assign material
@@ -426,6 +430,8 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
                                           import_id, layer_index, psd_layer_name, img_path)
+            if plane is None:
+                continue
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
             i_offset += 1
 
