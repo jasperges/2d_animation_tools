@@ -76,7 +76,7 @@ def parse_psd(self, psd_file):
         bboxes = []
         for i, layer in enumerate(layers):
             if (isinstance(layer, psd_tools.user_api.psd_image.Group) or
-                    (not layer.visible_global and self.hidden_layers)):
+                    (not self.hidden_layers and not layer.visible_global)):
                 bboxes.append(None)
                 continue
             prefix = '  - exporting: '
