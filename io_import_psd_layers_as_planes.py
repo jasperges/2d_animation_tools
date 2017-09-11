@@ -127,6 +127,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
 
         class self        - the import operator class
         list psd_layers   - info about the layer like position and index
+        list bboxes       - layers' bounding boxes if need to crop
         tuple image_size  - the witdth and height of the image
         string img_dir    - the path to the png images
         string psd_name   - the name of the psd file
@@ -159,7 +160,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             except RuntimeError:
                 pass
 
-    def get_transforms(layer, bbox, i_offset):
+    def get_dimensions(layer, bbox):
         if self.crop_layers and bbox is not None:
             x = layer.bbox.x1 + bbox[0]
             y = layer.bbox.y1 + bbox[1]
@@ -170,6 +171,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             y = layer.bbox.y1
             width = layer.bbox.x2 - x
             height = layer.bbox.y2 - y
+        return x, y, width, height
+
+    def get_transforms(layer, bbox, i_offset):
+        x, y, width, height = get_dimensions(layer, bbox)
         if self.size_mode == 'RELATIVE':
             scaling = self.scale_fac
         if self.size_mode == 'ABSOLUTE':
@@ -337,7 +342,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
 
         return mat
 
-    def create_textured_plane(name, transforms, global_matrix, import_id, layer_index, psd_layer_name, img_path):
+    def create_textured_plane(name, transforms, global_matrix, import_id, layer_index, psd_layer_name, img_path, create_original_uvs, dimensions):
         # Add UV's and add image to UV's
         img = create_image(img_path)
         if img is None:
@@ -361,6 +366,17 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         plane['2d_animation_tools'] = animation_tools_prop
         plane.data.uv_textures.new()
         plane.data.uv_textures[0].data[0].image = img
+        if create_original_uvs:
+            x, y, width, height = dimensions
+            original_uvs = plane.data.uv_textures.new(name="Original")
+            plane.data.uv_layers[original_uvs.name].data[0].uv = Vector(
+                (x / image_width, (image_height-y-height) / image_height))
+            plane.data.uv_layers[original_uvs.name].data[1].uv = Vector(
+                ((x+width) / image_width, (image_height-y-height) / image_height))
+            plane.data.uv_layers[original_uvs.name].data[2].uv = Vector(
+                ((x+width) / image_width, (image_height-y) / image_height))
+            plane.data.uv_layers[original_uvs.name].data[3].uv = Vector(
+                (x / image_width, (image_height-y) / image_height))
         # Create and assign material
         if bpy.context.scene.render.engine == 'CYCLES':
             mat = create_cycles_material(name, img, import_id)
@@ -407,7 +423,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         name = bpy.path.clean_name(layer.name)
         #if not self.layer_index_name:
         name = name.rstrip('_')
-        
+
         psd_layer_name = layer.name
         layer_index = str(layer._index)
         parent = layer.parent
@@ -425,13 +441,14 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         else:
             bbox = bboxes[i]
             transforms = get_transforms(layer, bbox, i_offset)
+            dimensions = get_dimensions(layer, bbox)
             if self.layer_index_name:
                 filename = '_'.join((name, str(layer._index)))
             else:
                 filename = name.rstrip('_')
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
-                                          import_id, layer_index, psd_layer_name, img_path)
+                                          import_id, layer_index, psd_layer_name, img_path, self.create_original_uvs, dimensions)
             if plane is None:
                 continue
             group_object(plane, parent, root_group, group_empty, group_group, import_id)
@@ -483,6 +500,10 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Crop layers',
         description='Crop each layer according to its transparency',
         default=True)
+    create_original_uvs = BoolProperty(
+        name='Create original UVS',
+        description='Generate an additional UV layer for placing the uncropped image.',
+        default=False)
     hidden_layers = BoolProperty(
         name='Import hidden layers',
         description='Also import hidden layers',
@@ -543,11 +564,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Layer Index',
         description='Add layer index to the png name. If not, possible conflicts may arise',
         default=True)
-    
+
     @classmethod
     def poll(self,context):
         return context.mode == 'OBJECT'
-        
+
     def draw(self, context):
         layout = self.layout
 
@@ -570,7 +591,10 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         col.separator()
         col.prop(self, 'offset')
         col.separator()
-        col.prop(self, 'crop_layers', toggle=True)
+        sub_col = col.column(align=True)
+        sub_col.prop(self, 'crop_layers', toggle=True)
+        if self.crop_layers:
+            sub_col.prop(self, 'create_original_uvs', toggle=True)
         # Grouping options
         box = layout.box()
         box.label('Grouping', icon='GROUP')
