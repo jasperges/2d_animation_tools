@@ -82,10 +82,9 @@ def parse_psd(self, psd_file):
             prefix = '  - exporting: '
             suffix = ' - {}'.format(layer.name)
             print_progress(i+1, max=(len(layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
+            name = bpy.path.clean_name(layer.name).rstrip('_')
             if self.layer_index_name:
-                name = '_'.join((bpy.path.clean_name(layer.name).rstrip('_'), str(layer._index)))
-            else:
-                name = bpy.path.clean_name(layer.name).rstrip('_')
+                name = name + '_' + str(layer._index)
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
             try:
                 layer_image = layer.as_PIL()
@@ -420,9 +419,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         suffix = ' - {}'.format(layer.name)
         print_progress(i+1, max=(len(psd_layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
 
-        name = bpy.path.clean_name(layer.name)
-        #if not self.layer_index_name:
-        name = name.rstrip('_')
+        name = bpy.path.clean_name(layer.name).rstrip('_')
 
         psd_layer_name = layer.name
         layer_index = str(layer._index)
@@ -443,9 +440,7 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             transforms = get_transforms(layer, bbox, i_offset)
             dimensions = get_dimensions(layer, bbox)
             if self.layer_index_name:
-                filename = '_'.join((name, str(layer._index)))
-            else:
-                filename = name.rstrip('_')
+                filename = name + '_' + str(layer._index)
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
                                           import_id, layer_index, psd_layer_name, img_path, self.create_original_uvs, dimensions)
