@@ -82,7 +82,11 @@ def parse_psd(self, psd_file):
             prefix = '  - exporting: '
             suffix = ' - {}'.format(layer.name)
             print_progress(i+1, max=(len(layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
-            name = bpy.path.clean_name(layer.name).rstrip('_')
+            if self.clean_name:
+                name = bpy.path.clean_name(layer.name).rstrip('_')
+            else:
+                name = layer.name.replace('\x00', '')
+            name = name.rstrip('_')
             if self.layer_index_name:
                 name = name + '_' + str(layer._index)
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
@@ -137,7 +141,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
     def get_parent(parent, import_id):
         if parent.name == '_RootGroup':
             return root_empty
-        parent_name = bpy.path.clean_name(parent.name).rstrip('_')
+        if self.clean_name:
+            parent_name = bpy.path.clean_name(parent.name).rstrip('_')
+        else:
+            parent_name = parent.name.replace('\x00', '').rstrip('_')
         parent_index = str(parent._index)
         for obj in bpy.context.scene.objects:
             if (parent_name in obj.name and obj.type == 'EMPTY' and
@@ -419,7 +426,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         suffix = ' - {}'.format(layer.name)
         print_progress(i+1, max=(len(psd_layers)), barlen=40, prefix=prefix, suffix=suffix, line_width=120)
 
-        name = bpy.path.clean_name(layer.name).rstrip('_')
+        if self.clean_name:
+            name = bpy.path.clean_name(layer.name).rstrip('_')
+        else:
+            name = layer.name.replace('\x00', '').rstrip('_')
 
         psd_layer_name = layer.name
         layer_index = str(layer._index)
@@ -439,8 +449,9 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             bbox = bboxes[i]
             transforms = get_transforms(layer, bbox, i_offset)
             dimensions = get_dimensions(layer, bbox)
+            filename = name
             if self.layer_index_name:
-                filename = name + '_' + str(layer._index)
+                filename += '_' + str(layer._index)
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
                                           import_id, layer_index, psd_layer_name, img_path, self.create_original_uvs, dimensions)
@@ -523,6 +534,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         name='Size',
         description='The width or height of the image in Blender units',
         default=2)
+    clean_name = BoolProperty(
+        name='Clean name',
+        description='Characters replaced in filename that'
+                    'may cause problems under various circumstances.',
+        default=True)
     clip = BoolProperty(
         name='Clip texture',
         description='Use CLIP as image extension. Avoids fringes on the edges',
@@ -620,6 +636,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         box.label('Import options', icon='FILTER')
         col = box.column()
         col.prop(self, 'rel_path')
+        col.prop(self, 'clean_name')
         col.prop(self, 'hidden_layers', icon='GHOST_ENABLED')
         col.prop(self, 'layer_index_name')
 
