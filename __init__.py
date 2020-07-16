@@ -21,20 +21,20 @@ bl_info = {
     "name": "Import PSD layers as planes",
     "author": "Jasper van Nieuwenhuizen",
     "version": (0, 1),
-    "blender": (2, 7, 2),
+    "blender": (2, 80, 0),
     "location": "File > Import > Import PSD as planes",
     "description": "Import the layers of a PSD file as planes.",
     "warning": "wip",
-    "wiki_url": "",
-    "tracker_url": "",
+    "wiki_url": "https://github.com/jasperges/2d_animation_tools",
+    "tracker_url": "https://github.com/jasperges/2d_animation_tools/issues",
     "support": 'COMMUNITY',
     "category": "Import-Export"}
 
 
 if "bpy" in locals():
-    import imp
+    import importlib
     if "io_import_psd_layers_as_planes" in locals():
-        imp.reload(io_import_psd_layers_as_planes)
+        importlib.reload(io_import_psd_layers_as_planes)
 
 
 import bpy
@@ -48,13 +48,15 @@ def menu_func_import(self, context):
 
 
 def register():
-    bpy.utils.register_module(__name__)
-    bpy.types.INFO_MT_file_import.append(menu_func_import)
+    bpy.utils.register_class(io_import_psd_layers_as_planes.ImportPsdAsPlanes)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.VIEW3D_MT_image_add.append(menu_func_import)
 
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
-    bpy.types.INFO_MT_file_import.remove(menu_func_import)
+    bpy.utils.unregister_class(io_import_psd_layers_as_planes.ImportPsdAsPlanes)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.VIEW3D_MT_image_add.remove(menu_func_import)
 
 
 if __name__ == "__main__":

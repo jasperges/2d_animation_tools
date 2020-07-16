@@ -30,7 +30,7 @@ from bpy.props import (BoolProperty,
                        EnumProperty,
                        CollectionProperty)
 from bpy_extras.io_utils import (ImportHelper,
-                                 orientation_helper_factory,
+                                 orientation_helper,
                                  axis_conversion)
 
 
@@ -54,7 +54,7 @@ def print_progress(progress, min=0, max=100, barlen=50, prefix='', suffix='', li
 
 def parse_psd(self, psd_file):
     '''
-    parse_psd(string psd_file) -> list layers, tuple image_size, string png_dir
+    parse_psd(string psd_file) -> list layers, list bboxes, tuple image_size, string png_dir
 
         Reads psd_file and exports all layers to png's.
         Returns a list of all the layer objects, the image size and
@@ -64,10 +64,9 @@ def parse_psd(self, psd_file):
     '''
 
     def get_layers(layer, all_layers=[]):
-        layers = getattr(layer, 'layers', None)
-        if (not layers) or (hasattr(layer, 'visible') and not layer.visible):
+        if not layer.is_group():
             return
-        for sub_layer in layer.layers:
+        for sub_layer in reversed(layer):  # reversed() since psd_tools 1.8
             all_layers.append(sub_layer)
             get_layers(sub_layer, all_layers=all_layers)
         return all_layers
@@ -75,8 +74,7 @@ def parse_psd(self, psd_file):
     def export_layers_as_png(layers, png_dir):
         bboxes = []
         for i, layer in enumerate(layers):
-            if (isinstance(layer, psd_tools.user_api.psd_image.Group) or
-                    (not self.hidden_layers and not layer.visible_global)):
+            if (layer.is_group() or (not self.hidden_layers and not layer.is_visible())):
                 bboxes.append(None)
                 continue
             prefix = '  - exporting: '
@@ -88,10 +86,10 @@ def parse_psd(self, psd_file):
                 name = layer.name.replace('\x00', '')
             name = name.rstrip('_')
             if self.layer_index_name:
-                name = name + '_' + str(layer._index)
+                name = name + '_' + str(i)
             png_file = os.path.join(png_dir, ''.join((name, '.png')))
             try:
-                layer_image = layer.as_PIL()
+                layer_image = layer.topil()
             except ValueError:
                 print("Could not process layer " + layer.name)
                 bboxes.append(None)
@@ -112,15 +110,17 @@ def parse_psd(self, psd_file):
     png_dir = os.path.join(psd_dir, '_'.join((psd_name, 'pngs')))
     if not os.path.isdir(png_dir):
         os.mkdir(png_dir)
-    psd = psd_tools.PSDImage.load(psd_file)
+    psd = psd_tools.PSDImage.open(psd_file)
+
     layers = get_layers(psd)
-    image_size = (psd.bbox.width, psd.bbox.height)
     bboxes = export_layers_as_png(layers, png_dir)
+    bb = psd.bbox
+    image_size = (bb[2] - bb[0], bb[3] - bb[1])
 
     return (layers, bboxes, image_size, png_dir)
 
 
-def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, layers, import_id):
+def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, import_id, collection):
     '''
     create_objects(class self, list psd_layers, tuple image_size,
                   string img_dir, string psd_name, list layers, string import_id)
@@ -131,10 +131,9 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         class self        - the import operator class
         list psd_layers   - info about the layer like position and index
         list bboxes       - layers' bounding boxes if need to crop
-        tuple image_size  - the witdth and height of the image
+        tuple image_size  - the width and height of the image
         string img_dir    - the path to the png images
         string psd_name   - the name of the psd file
-        listOfBool layers - the layer(s) to put the objects on
         string import_id  - used to identify this import
     '''
 
@@ -145,38 +144,35 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             parent_name = bpy.path.clean_name(parent.name).rstrip('_')
         else:
             parent_name = parent.name.replace('\x00', '').rstrip('_')
-        parent_index = str(parent._index)
-        for obj in bpy.context.scene.objects:
-            if (parent_name in obj.name and obj.type == 'EMPTY' and
-                    obj['2d_animation_tools']['import_id'] == import_id and
-                    obj['2d_animation_tools']['layer_index'] == parent_index):
-                return obj
 
-    def group_object(obj, parent, root_group, group_empty, group_group, import_id):
-        if group_empty:
-            bpy.context.scene.update()
-            parent_empty = get_parent(parent, import_id)
-            matrix_parent_inverse = parent_empty.matrix_world.inverted()
-            obj.parent = parent_empty
-            obj.matrix_parent_inverse = matrix_parent_inverse
-        if group_group:
-            # Only put objects in one group per psd file
-            try:
-                root_group.objects.link(obj)
-            except RuntimeError:
-                pass
+        if parent in psd_layers:
+            parent_index = psd_layers.index(parent)
+            for obj in bpy.context.scene.objects:
+                if (parent_name in obj.name and obj.type == 'EMPTY' and
+                        obj['2d_animation_tools']['import_id'] == import_id and
+                        obj['2d_animation_tools']['layer_index'] == str(parent_index)):
+                    return obj
+        else:
+            return root_empty
+
+    def group_object(obj, parent, import_id):
+        bpy.context.view_layer.update()
+        parent_empty = get_parent(parent, import_id)
+        matrix_parent_inverse = parent_empty.matrix_world.inverted()
+        obj.parent = parent_empty
+        obj.matrix_parent_inverse = matrix_parent_inverse
 
     def get_dimensions(layer, bbox):
         if self.crop_layers and bbox is not None:
-            x = layer.bbox.x1 + bbox[0]
-            y = layer.bbox.y1 + bbox[1]
+            x = layer.bbox[0] + bbox[0]
+            y = layer.bbox[1] + bbox[1]
             width = bbox[2] - bbox[0]
             height = bbox[3] - bbox[1]
         else:
-            x = layer.bbox.x1
-            y = layer.bbox.y1
-            width = layer.bbox.x2 - x
-            height = layer.bbox.y2 - y
+            x = layer.bbox[0]
+            y = layer.bbox[1]
+            width = layer.bbox[2] - x
+            height = layer.bbox[3] - y
         return x, y, width, height
 
     def get_transforms(layer, bbox, i_offset):
@@ -198,24 +194,18 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         scale = Vector((scale_x, scale_y, scale_z))
         return (location, scale)
 
-    def sum_vectors(vectors):
-        vector_sum = Vector()
-        for v in vectors:
-            vector_sum += v
-        return vector_sum
-
     def get_children_median(obj):
         children = [c for c in obj.children if c.type == 'MESH']
         if not children:
             return Vector()
         child_locations = [c.matrix_world.to_translation() for c in children]
-        median = sum_vectors(child_locations) / len(children)
+        median = sum(child_locations, Vector()) / len(children)
         return median
 
     def move_to_children_median(obj):
         median = get_children_median(obj)
         obj.location = median
-        bpy.context.scene.update()
+        bpy.context.view_layer.update()
         matrix_parent_inverse = obj.matrix_world.inverted()
         # for c in [c for c in obj.children if c.type == 'MESH']:
         for c in obj.children:
@@ -237,43 +227,6 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             img.filepath = bpy.path.relpath(img.filepath)
         return img
 
-    def create_bi_texture(name, img, import_id):
-        # Check if texture already exists
-        for t in bpy.data.textures:
-            if name in t.name and t.type == 'IMAGE' and t.image == img:
-                return t
-        # Texture not found, create a new one
-        tex = bpy.data.textures.new(name, 'IMAGE')
-        tex.use_mipmap = self.use_mipmap
-        tex.extension = 'CLIP' if self.clip else 'REPEAT'
-        tex.image = img
-        tex['2d_animation_tools'] = {'import_id': import_id}
-        return tex
-
-    def create_bi_material(name, tex, import_id):
-        # Maybe add these to material settings later
-        use_shadeless = True
-        use_transparency = True
-        # Check if material already exists
-        for m in bpy.data.materials:
-            if name in m.name and m.texture_slots:
-                for ts in m.texture_slots:
-                    if ts:
-                        if ts.texture == tex:
-                            return m
-        # Material not found, create a new one
-        mat = bpy.data.materials.new(name)
-        mat['2d_animation_tools'] = {'import_id': import_id}
-        mat.use_shadeless = use_shadeless
-        mat.use_transparency = use_transparency
-        mat.texture_slots.create(0)
-        mat.texture_slots[0].texture = tex
-        if use_transparency:
-            mat.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
-            mat.alpha = 0.0
-            mat.texture_slots[0].use_map_alpha = True
-        return mat
-
     def create_cycles_material(name, img, import_id):
         interpolation = self.texture_interpolation
         # Check if material already exists
@@ -284,12 +237,11 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
                         return m
         mat = bpy.data.materials.new(name)
         mat['2d_animation_tools'] = {'import_id': import_id}
-        mat.game_settings.alpha_blend = 'ALPHA_ANTIALIASING'
         mat.use_nodes = True
         node_tree = mat.node_tree
         nodes = node_tree.nodes
-        # Remove default Diffuse
-        nodes.remove(nodes['Diffuse BSDF'])
+        # Remove default Principled
+        nodes.remove(nodes['Principled BSDF'])
         # Create nodes
         img_tex = nodes.new('ShaderNodeTexImage')
         light_path = nodes.new('ShaderNodeLightPath')
@@ -300,8 +252,11 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
         mix = nodes.new('ShaderNodeMixShader')
         mat_output = nodes['Material Output']
         # Set options
+        mat.blend_method = 'BLEND'
         img_tex.image = img
         img_tex.interpolation = interpolation
+        img_tex.extension = 'CLIP' if self.clip else 'EXTEND'
+        # TODO premult
         math_max1.operation = 'MAXIMUM'
         math_max2.operation = 'MAXIMUM'
         # Connect nodes
@@ -360,41 +315,33 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
                  (scale.x, 0, scale.y),
                  (scale.x, 0, -scale.y),
                  (-scale.x, 0, -scale.y)]
-        verts = [global_matrix * Vector(v) for v in verts]
+        verts = [global_matrix @ Vector(v) for v in verts]
         faces = [(3, 2, 1, 0)]
         mesh = bpy.data.meshes.new(name)
         mesh.from_pydata(verts, [], faces)
         plane = bpy.data.objects.new(name, mesh)
-        bpy.context.scene.objects.link(plane)
-        plane.location = global_matrix * loc
-        plane.layers = layers
+        plane.location = global_matrix @ loc
         animation_tools_prop = {'import_id': import_id, 'layer_index': layer_index, 'psd_layer_name': psd_layer_name}
         plane['2d_animation_tools'] = animation_tools_prop
-        plane.data.uv_textures.new()
-        plane.data.uv_textures[0].data[0].image = img
+        plane.data.uv_layers.new()
         if create_original_uvs:
             x, y, width, height = dimensions
-            original_uvs = plane.data.uv_textures.new(name="Original")
-            plane.data.uv_layers[original_uvs.name].data[0].uv = Vector(
-                (x / image_width, (image_height-y-height) / image_height))
-            plane.data.uv_layers[original_uvs.name].data[1].uv = Vector(
-                ((x+width) / image_width, (image_height-y-height) / image_height))
-            plane.data.uv_layers[original_uvs.name].data[2].uv = Vector(
-                ((x+width) / image_width, (image_height-y) / image_height))
-            plane.data.uv_layers[original_uvs.name].data[3].uv = Vector(
-                (x / image_width, (image_height-y) / image_height))
+            original_uvs = plane.data.uv_layers.new(name="Original")
+            original_uvs.data[0].uv = Vector((x / image_width,
+                                              (image_height-y-height) / image_height))
+            original_uvs.data[1].uv = Vector(((x+width) / image_width,
+                                              (image_height-y-height) / image_height))
+            original_uvs.data[2].uv = Vector(((x+width) / image_width,
+                                              (image_height-y) / image_height))
+            original_uvs.data[3].uv = Vector((x / image_width,
+                                              (image_height-y) / image_height))
         # Create and assign material
-        if bpy.context.scene.render.engine == 'CYCLES':
-            mat = create_cycles_material(name, img, import_id)
-        else:   # Blender Internal, Game or unsupported engine
-            tex = create_bi_texture(name, img, import_id)
-            mat = create_bi_material(name, tex, import_id)
+        mat = create_cycles_material(name, img, import_id)
         plane.data.materials.append(mat)
         return plane
 
     rel_path = self.rel_path
     group_empty = self.group_empty
-    group_group = self.group_group
     axis_forward = self.axis_forward
     axis_up = self.axis_up
 
@@ -408,17 +355,10 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
 
     root_name = os.path.splitext(psd_name)[0]
 
-    if group_group:
-        root_group = bpy.data.groups.new(root_name)
     if group_empty:
         root_empty = bpy.data.objects.new(root_name, None)
-        bpy.context.scene.objects.link(root_empty)
-        root_empty.layers = layers
         root_empty['2d_animation_tools'] = {'import_id': import_id, 'layer_index': 'root'}
-        try:
-            root_group.objects.link(root_empty)
-        except NameError:
-            pass
+        collection.objects.link(root_empty)
     i_offset = 0
     groups = []
     for i, layer in enumerate(psd_layers):
@@ -432,32 +372,35 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             name = layer.name.replace('\x00', '').rstrip('_')
 
         psd_layer_name = layer.name
-        layer_index = str(layer._index)
+        layer_index = str(i)
         parent = layer.parent
 
-        if isinstance(layer, psd_tools.user_api.psd_image.Group) and group_empty:
+        if layer.is_group() and group_empty:
             empty = bpy.data.objects.new(name, None)
-            bpy.context.scene.objects.link(empty)
-            empty.layers = layers
             animation_tools_prop = {'import_id': import_id,
                                     'layer_index': layer_index,
                                     'psd_layer_name': psd_layer_name}
             empty['2d_animation_tools'] = animation_tools_prop
-            group_object(empty, parent, root_group, group_empty, group_group, import_id)
+            group_object(empty, parent, import_id)
             groups.append(empty)
+            collection.objects.link(empty)
         else:
             bbox = bboxes[i]
             transforms = get_transforms(layer, bbox, i_offset)
             dimensions = get_dimensions(layer, bbox)
             filename = name
             if self.layer_index_name:
-                filename += '_' + str(layer._index)
+                filename += '_' + layer_index
             img_path = os.path.join(img_dir, ''.join((filename, '.png')))
             plane = create_textured_plane(name, transforms, global_matrix,
-                                          import_id, layer_index, psd_layer_name, img_path, self.create_original_uvs, dimensions)
+                                          import_id, layer_index,
+                                          psd_layer_name, img_path,
+                                          self.create_original_uvs, dimensions)
             if plane is None:
                 continue
-            group_object(plane, parent, root_group, group_empty, group_group, import_id)
+            if group_empty:
+                group_object(plane, parent, import_id)
+            collection.objects.link(plane)
             i_offset += 1
 
     if group_empty:
@@ -467,19 +410,15 @@ def create_objects(self, psd_layers, bboxes, image_size, img_dir, psd_name, laye
             move_to_children_median(group)
         # Select root empty and make active object
         bpy.ops.object.select_all(action='DESELECT')
-        root_empty.select = True
-        bpy.context.scene.objects.active = root_empty
+        root_empty.select_set(True)
+        bpy.context.view_layer.objects.active = root_empty
         # Move root empty to cursor position
-        root_empty.location = bpy.context.scene.cursor_location
-
-
-IOPSDOrientationHelper = orientation_helper_factory("IOPSDOrientationHelper",
-                                                    axis_forward='-Y',
-                                                    axis_up='Z')
+        root_empty.location = bpy.context.scene.cursor.location
 
 
 # Actual import operator.
-class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper):
+@orientation_helper(axis_forward='-Y', axis_up='Z')
+class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper):
 
     '''Import PSD as planes'''
     bl_idname = 'import_scene.psd'
@@ -488,66 +427,62 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
 
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
-    directory = StringProperty(
+    directory: StringProperty(
         maxlen=1024,
         subtype='DIR_PATH',
         options={'HIDDEN', 'SKIP_SAVE'})
-    files = CollectionProperty(
+    files: CollectionProperty(
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'})
 
     filename_ext = '.psd'
-    filter_glob = StringProperty(default='*.psd', options={'HIDDEN'})
-    offset = FloatProperty(
+    filter_glob: StringProperty(default='*.psd', options={'HIDDEN'})
+    offset: FloatProperty(
         name='Offset',
         description='Offset planes by this amount on the Y axis',
         default=0.01)
-    crop_layers = BoolProperty(
+    crop_layers: BoolProperty(
         name='Crop layers',
         description='Crop each layer according to its transparency',
         default=True)
-    create_original_uvs = BoolProperty(
+    create_original_uvs: BoolProperty(
         name='Create original UVS',
-        description='Generate an additional UV layer for placing the uncropped image.',
+        description='Generate an additional UV layer for placing the uncropped image',
         default=False)
-    hidden_layers = BoolProperty(
+    hidden_layers: BoolProperty(
         name='Import hidden layers',
         description='Also import hidden layers',
         default=False)
-    size_mode = EnumProperty(
+    size_mode: EnumProperty(
         name='Size Mode',
         description='How the size of the planes is computed',
         items=(('RELATIVE', 'Relative', 'Use relative size'),
                ('ABSOLUTE', 'Absolute', 'Use absolute size')),
         default='RELATIVE')
-    scale_fac = FloatProperty(
+    scale_fac: FloatProperty(
         name='Scale',
         description='Number of pixels per Blender unit',
         default=100)
-    size_mode_absolute = EnumProperty(
+    size_mode_absolute: EnumProperty(
         name='Absolute Size Mode',
         description='Use the width or the height for the absolute size',
         items=(('WIDTH', 'Width', 'Define the width of the image'),
                ('HEIGHT', 'Height', 'Define the height of the image')),
         default='WIDTH')
-    absolute_size = FloatProperty(
+    absolute_size: FloatProperty(
         name='Size',
         description='The width or height of the image in Blender units',
         default=2)
-    clean_name = BoolProperty(
+    clean_name: BoolProperty(
         name='Clean name',
-        description='Characters replaced in filename that'
-                    'may cause problems under various circumstances.',
+        description='Characters replaced in filename that '
+                    'may cause problems under various circumstances',
         default=True)
-    clip = BoolProperty(
+    clip: BoolProperty(
         name='Clip texture',
         description='Use CLIP as image extension. Avoids fringes on the edges',
         default=True)
-    use_mipmap = BoolProperty(
-        name='MIP Map',
-        description='Use auto-generated MIP maps for the images. Turning this off leads to sharper rendered images',
-        default=False)
-    texture_interpolation = EnumProperty(
+    texture_interpolation: EnumProperty(
         name='Interpolation',
         description='Texture Interpolation',
         items=(('Linear', 'Linear', 'Linear interpolation'),
@@ -555,29 +490,21 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
                ('Cubic', 'Cubic', 'Cubic interpolation (CPU only)'),
                ('Smart', 'Smart', 'Bicubic when magnifying, else bilinear (OSL only')),
         default='Linear')
-    group_group = BoolProperty(
-        name='Group',
-        description='Put the images in groups',
-        default=True)
-    group_empty = BoolProperty(
+    group_empty: BoolProperty(
         name='Empty',
         description='Parent the images to an empty',
         default=True)
-    group_layers = BoolProperty(
-        name='Layers',
-        description='Put the images on separate layers per PSD (starting from the active layer)',
-        default=False)
-    rel_path = BoolProperty(
+    rel_path: BoolProperty(
         name='Relative Path',
         description='Select the file relative to the blend file',
         default=True)
-    layer_index_name = BoolProperty(
+    layer_index_name: BoolProperty(
         name='Layer Index',
         description='Add layer index to the png name. If not, possible conflicts may arise',
         default=True)
 
     @classmethod
-    def poll(self,context):
+    def poll(self, context):
         return context.mode == 'OBJECT'
 
     def draw(self, context):
@@ -585,7 +512,7 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
 
         # Transformation options
         box = layout.box()
-        box.label('Transformation options', icon='MANIPUL')
+        box.label(text='Transformation options', icon='OBJECT_ORIGIN')
         col = box.column()
         sub_col = col.column(align=True)
         row = sub_col.row(align=True)
@@ -608,32 +535,18 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
             sub_col.prop(self, 'create_original_uvs', toggle=True)
         # Grouping options
         box = layout.box()
-        box.label('Grouping', icon='GROUP')
+        box.label(text='Grouping', icon='GROUP')
         row = box.row(align=True)
-        # row.prop(self, 'group_group', toggle=True)
         row.prop(self, 'group_empty', toggle=True)
-        row.prop(self, 'group_layers', toggle=True)
         # Material options (not much for now)
         box = layout.box()
-        box.label('Material options', icon='MATERIAL_DATA')
+        box.label(text='Material options', icon='MATERIAL_DATA')
         col = box.column()
-        if context.scene.render.engine == 'CYCLES':
-            col.prop(self, 'texture_interpolation')
-        else:
-            if not context.scene.render.engine in ['BLENDER_RENDER', 'BLENDER_GAME']:
-                subbox = col.box()
-                subbox.label(text='Unrecognized Render Engine', icon='ERROR')
-                subbox.label(text='Assuming Blender Internal')
-                col.separator()
-            if self.use_mipmap:
-                mipmap_icon = 'ANTIALIASED'
-            else:
-                mipmap_icon = 'ALIASED'
-            col.prop(self, 'use_mipmap', icon=mipmap_icon, toggle=True)
-            col.prop(self, 'clip', toggle=True)
+        col.prop(self, 'texture_interpolation')
+        col.prop(self, 'clip', toggle=True)
         # Import options
         box = layout.box()
-        box.label('Import options', icon='FILTER')
+        box.label(text='Import options', icon='FILTER')
         col = box.column()
         col.prop(self, 'rel_path')
         col.prop(self, 'clean_name')
@@ -648,25 +561,15 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
         print()
 
         d = self.properties.directory
-        fils = self.properties.files
-        layer_list = 20 * [False]
-        cur_layer = context.scene.active_layer
+        files = self.properties.files
         random.seed()
         import_id = generate_random_id()
 
-        if self.group_layers:
-            # Make all layers visible to make sure the scene is
-            # properly updated during import
-            visible_layers = context.scene.layers[:]
-            context.scene.layers = 20 * [True]
+        for i, f in enumerate(files):
+            collection_name = os.path.splitext(f.name)[0]
+            collection = bpy.data.collections.new(collection_name)
+            context.scene.collection.children.link(collection)
 
-        for i, f in enumerate(fils):
-            layers = layer_list[:]
-            if self.group_layers:
-                layernum = (cur_layer + i) % 20
-            else:
-                layernum = context.scene.active_layer
-            layers[layernum] = True
             psd_file = os.path.join(d, f.name)
             try:
                 psd_layers, bboxes, image_size, png_dir = parse_psd(self, psd_file)
@@ -675,16 +578,11 @@ class ImportPsdAsPlanes(bpy.types.Operator, ImportHelper, IOPSDOrientationHelper
                 self.report({'ERROR'}, msg)
                 print("*** {}".format(msg))
                 continue
-            # psd_layers, image_size, png_dir = parse_psd(self, psd_file)
             create_objects(self, psd_layers, bboxes, image_size,
-                           png_dir, f.name, layers, import_id)
+                           png_dir, f.name, import_id, collection)
             print(''.join(('  Done', 114 * ' ')))
 
-        if self.group_layers:
-            # Restore original layer visibility
-            context.scene.layers = visible_layers
-
-        if len(fils) > 1:
+        if len(files) > 1:
             print_f = 'Files'
         else:
             print_f = 'File'
